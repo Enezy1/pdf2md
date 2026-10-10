@@ -438,15 +438,16 @@ class MainWindow:
         running = self.busy()
         self.engine_link.pack_forget()
         if self.mode_var.get() == "auto":
-            self._engine_texts = None
             tiers = self._auto_tiers()
+            # النص الكامل إن اتسع السطر، وإلا المختصر (_fit_info يقرر حسب عرض النافذة، مثل "عبر المواقع")
+            self._engine_texts = ((R("تلقائي: " + " ← ".join(tiers)), R("تلقائي (" + {1: "درجة واحدة", 2: "درجتان"}.get(len(tiers), f"{len(tiers)} درجات") + ")"))
+                                  if tiers else (R("تلقائي: لا يوجد محرّك (النصية فقط)"), R("تلقائي: لا محرّك")))
             self.engine_icon.configure(text=ui.ICON["check"] if tiers else ui.ICON["shield"],
                                        foreground=t["ok"] if tiers else t["muted"])
-            self.engine_lbl.configure(text=R("تلقائي: " + " ← ".join(tiers) if tiers
-                                             else "تلقائي: لا يوجد محرّك (النصية فقط)"),
-                                      foreground=t["ok"] if tiers else t["muted"])
+            self.engine_lbl.configure(text=self._engine_texts[0], foreground=t["ok"] if tiers else t["muted"])
             if not tiers:
                 self.engine_link.pack(side="right", padx=px(S2), after=self.engine_lbl)
+            self.root.after_idle(lambda: self._fit_info(self.engine_lbl.master, self.engine_lbl.master.winfo_width()))
             if not running:
                 self.start_btn.configure(text=R("ابدأ"))
             return
