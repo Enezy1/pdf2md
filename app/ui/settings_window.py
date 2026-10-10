@@ -517,14 +517,15 @@ class SettingsWindow:
         old = self.eng_body
         g = ui.Frame(old.master)
         g.columnconfigure(3, weight=1)
-        for col, w in ((0, 130), (1, 120), (2, 110), (4, 190)):
+        for col, w in ((0, 100), (1, 100), (2, 90), (4, 120)):
             g.columnconfigure(col, minsize=px(w))
         mode, active_spec = ec.effective(self.settings)
         pad = {"pady": px(S1)}
-        rows = [("paddle", "PaddleOCR (تجريبي)", None)] + [(m.id, m.label, m) for m in cat.MODELS]
+        rows = sorted([("paddle", "PaddleOCR (تجريبي)", None)] + [(m.id, m.label, m) for m in cat.MODELS],
+                      key=lambda r: cat.rank(r[0]))   # من الأفضل للأسوأ حسب التجربة (models_catalog.RANKING)
         exe = mm.llama_exe()
 
-        # الترتيب حسب الحالة: المفعّل أولاً، ثم المثبّت، ثم غير المثبّت (والترتيب الأصلي داخل كل فئة)
+        # الترتيب حسب الحالة: المفعّل أولاً، ثم المثبّت، ثم غير المثبّت؛ وداخل كل فئة من الأفضل للأسوأ (الفرز أعلاه)
         def rank(row):
             spec = row[2]
             if spec is None:
@@ -547,7 +548,10 @@ class SettingsWindow:
                 active = mode in (ec.LOCAL, ec.PADDLE_LOCAL) and active_spec is not None and active_spec.id == spec.id
                 size = spec.total_size
                 note = "" if (exe or not installed) else "ينقص محرّك llama-server"
-            ui.Label(g, text=R(name), anchor="e").grid(row=i, column=5, sticky="e", padx=(px(S2), 0), **pad)
+            ui.Label(g, text=R(name), anchor="e").grid(row=i, column=5, sticky="ne", padx=(px(S2), 0), **pad)
+            # نتيجة التجربة تحت الاسم (من الأفضل للأسوأ: models_catalog.RANKING)
+            ui.Label(g, text=R(cat.VERDICTS.get(eid, cat.UNTESTED)), style="Muted.TLabel", anchor="e").grid(
+                row=i, column=5, sticky="se", padx=(px(S2), 0))
             bg = self.app.bg
             if bg.key == eid and (bg.running or bg.paused):
                 self._download_row(g, i, pad)

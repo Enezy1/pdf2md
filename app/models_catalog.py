@@ -92,6 +92,26 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
 )
 
+# الترتيب في الإعدادات من الأفضل للأسوأ، حسب التجربة على مذكرة حقيقية (ناسكو، فاكس 100 نقطة، 2026-10-11 —
+# التفاصيل في DEVLOG). "paddle" = PaddleOCR. ما لم يُجرَّب يأتي بعد المجرَّب بترتيب الكتالوج.
+RANKING = ("dots-ocr", "qwen3vl-4b", "nanonets-ocr2-3b", "paddle")
+VERDICTS = {
+    "dots-ocr": "١ · الأدق، بطيء جداً",
+    "qwen3vl-4b": "٢ · أرقام جيدة، كلمات خاطئة أحياناً",
+    "nanonets-ocr2-3b": "٣ · أخطأ في مبلغ وأسقط عبارة",
+    "paddle": "٤ · سريع جداً، مسودة",
+}
+UNTESTED = "لم يُجرَّب بعد"
+# الأرقام في VERDICTS = الترتيب في التجربة. على معالج i7 بلا كرت: dots ~11 د/صفحة، Qwen3-VL 4B ~5.5، Nanonets ~4.5،
+# Paddle ~10 ث. dots: كل أرقام الصفحة صحيحة؛ Qwen: "المدعية" ← "المدنية"؛ Nanonets: 250,000 ← 250.
+
+
+def rank(model_id: str) -> int:
+    return RANKING.index(model_id) if model_id in RANKING else len(RANKING)
+
+
+MODELS = tuple(sorted(MODELS, key=lambda m: rank(m.id)))  # sorted ثابت: غير المجرَّب يبقى بترتيبه
+
 # نماذج بحثنا عنها ولم نجد لها GGUF + mmproj صالحاً للتحقق — تظهر في benchmark كمستبعدة.
 EXCLUDED: dict[str, str] = {
     "Qwen3-VL 2B (Q4_K_M)": "أُلغي: فشل في قراءة المستندات العربية الممسوحة (حلقات تكرار ونص مختلَق في اختبار 2026-10-05)",
