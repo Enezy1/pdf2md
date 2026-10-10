@@ -524,10 +524,13 @@ class SettingsWindow:
         """يرسم قائمة المحرّكات: نموذج تحت نموذج، ولكل واحد حالته وتنزيل/حذف وتفعيل."""
         from .. import engine_choice as ec
         from .. import paddle_engine as pe
-        for w in self.eng_body.winfo_children():
-            w.destroy()
-        g = self.eng_body
+        # القائمة تُبنى كاملة في إطار جديد ثم تُبدَّل بالقديمة دفعة واحدة: بدل أن تظهر الصفوف واحداً بعد آخر
+        # (حركة توحي بخلل). وعرض الأعمدة ثابت فلا تنزاح الأزرار حين يتحول صف إلى شريط تنزيل.
+        old = self.eng_body
+        g = ui.Frame(old.master)
         g.columnconfigure(3, weight=1)
+        for col, w in ((0, 130), (1, 120), (2, 110), (4, 190)):
+            g.columnconfigure(col, minsize=px(w))
         mode, active_spec = ec.effective(self.settings)
         pad = {"pady": px(S1)}
         rows = [("paddle", "PaddleOCR (تجريبي)", None)] + [(m.id, m.label, m) for m in cat.MODELS]
@@ -576,6 +579,9 @@ class SettingsWindow:
             if spec is not None and installed and not exe:
                 ui.Button(g, text=R("تنزيل llama-server"), command=self._download_llama).grid(
                     row=i, column=0, sticky="w", **pad)
+        g.pack(fill="x", after=old)
+        old.destroy()
+        self.eng_body = g
         self._render_paddle_opts(mode)
         if hasattr(self, "lab_models_frame"):
             self._render_lab_models()
