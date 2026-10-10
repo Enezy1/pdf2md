@@ -57,6 +57,20 @@ def _ram_gb() -> float | None:
         return None
 
 
+def _on_disk(files) -> tuple[int, int]:
+    """(المنجز، الكلي) لملفات تنزيل: الملف المكتمل بحجمه، وإلا الجزء المنزّل (.part)."""
+    done = total = 0
+    for path, f in files:
+        total += f.size
+        if path.is_file():
+            done += min(path.stat().st_size, f.size)
+        else:
+            part = path.with_name(path.name + ".part")
+            if part.is_file():
+                done += min(part.stat().st_size, f.size)
+    return done, total
+
+
 def _yn(v) -> str:
     return "نعم" if v else "لا"
 
@@ -480,6 +494,8 @@ class SettingsWindow:
         ui.Para(sec, style="Muted.TLabel", text=(
             "تقرأ الصفحات المصوّرة على جهازك بلا إنترنت. نزّل محرّكاً ثم فعّله؛ وإذا كان المثبّت محرّكاً واحداً "
             "فهو المستخدم تلقائياً.")).pack(fill="x", pady=(0, px(S2)))
+        self.dl_anchor = ui.Frame(sec)   # شريط العمليات العامة (نسخ من مجلد، اختبار) أعلى القائمة لا أسفلها
+        self.dl_anchor.pack(fill="x")
         self.eng_body = ui.Frame(sec)
         self.eng_body.pack(fill="x")
         self.paddle_opts = ui.Frame(sec)
@@ -491,13 +507,16 @@ class SettingsWindow:
         if ram:
             self.ram_var.set(R(f"ذاكرة جهازك: {ram:.0f}GB. PaddleOCR والنماذج الأصغر (3B–4B) أسرع على جهاز بلا معالج رسومي."))
         ui.Label(sec, textvariable=self.ram_var, style="Muted.TLabel", anchor="e").pack(fill="x", pady=(px(S2), 0))
-        self.dl_row = ui.Frame(sec)
+        self.dl_row = ui.Frame(self.dl_anchor)
         self.dl_bar = ui.ProgressBar(self.dl_row, maximum=1000)
-        ui.Button(self.dl_row, text=R("إلغاء"), command=lambda: self.app.bg.stop.set()).pack(side="left")
+        ui.Button(self.dl_row, text=R("إلغاء"), command=lambda: self.app.bg.cancel()).pack(side="left")
         self.dl_bar.pack(side="right", fill="x", expand=True, padx=(0, px(S2)))
         self.dl_var = tk.StringVar()
-        self.dl_label = ui.Label(sec, textvariable=self.dl_var, style="Muted.TLabel", anchor="e")
+        self.dl_label = ui.Label(self.dl_anchor, textvariable=self.dl_var, style="Muted.TLabel", anchor="e")
+        self.row_var = tk.StringVar()     # تقدم تنزيل المحرّك داخل صفه
+        self.row_bar = None
         self._bg_was_running = False
+        self._bg_shape = None
         self._refresh_models()
         self._build_lab(root)
 
@@ -528,6 +547,10 @@ class SettingsWindow:
                 size = spec.total_size
                 note = "" if (exe or not installed) else "ينقص محرّك llama-server"
             ui.Label(g, text=R(name), anchor="e").grid(row=i, column=5, sticky="e", padx=(px(S2), 0), **pad)
+            bg = self.app.bg
+            if bg.key == eid and (bg.running or bg.paused):
+                self._download_row(g, i, pad)
+                continue
             if active:
                 chip, style = "مفعّل", "Ok.TLabel"
             elif note:
@@ -556,6 +579,54 @@ class SettingsWindow:
         self._render_paddle_opts(mode)
         if hasattr(self, "lab_models_frame"):
             self._render_lab_models()
+
+    def _download_row(self, g, i: int, pad: dict) -> None:
+        """صف المحرّك أثناء تنزيله: شريط ونسبة ومتبقٍ، وإيقاف مؤقت/استئناف وإلغاء."""
+        bg = self.app.bg
+        box = ui.Frame(g)
+        box.grid(row=i, column=2, columnspan=3, sticky="ew", padx=(px(S3), 0), **pad)
+        self.row_bar = ui.ProgressBar(box, maximum=1000)
+        self.row_bar.pack(fill="x")
+        ui.Label(box, textvariable=self.row_var, style="Muted.TLabel", anchor="e").pack(fill="x")
+        if bg.paused and not bg.running:
+            ui.Button(g, text=R("استئناف"), width=8, style="Accent.TButton",
+                      command=lambda: (bg.resume(), self._refresh_models())).grid(
+                row=i, column=1, padx=(px(S2), 0), **pad)
+        else:
+            ui.Button(g, text=R("إيقاف مؤقت"), width=9, command=bg.pause).grid(
+                row=i, column=1, padx=(px(S2), 0), **pad)
+        ui.Button(g, text=R("إلغاء"), width=6,
+                  command=lambda: (bg.cancel(), self._refresh_models())).grid(row=i, column=0, sticky="w", **pad)
+        self._update_row_progress()
+
+    def _update_row_progress(self) -> None:
+        bg = self.app.bg
+        done, total, eta = bg.overall()
+        frac = done / total if total else 0
+        if self.row_bar is not None:
+            try:
+                self.row_bar.configure(value=int(frac * 1000))
+            except tk.TclError:
+                self.row_bar = None
+        verifying = bg.label.startswith("تحقق")
+        if bg.paused and not bg.running:
+            state = "متوقف مؤقتاً"
+        elif verifying:
+            state = "التحقق من الملف (البصمة)…"
+        else:
+            state = "جارٍ التنزيل"
+        left = f" · باقي {self._eta(eta)}" if eta and bg.running and not verifying else ""
+        amount = f" · {self._size(done)} من {self._size(total)}" if total else ""
+        self.row_var.set(R(f"{state} {frac:.0%}{amount}{left}" if total else state + "…"))
+
+    @staticmethod
+    def _eta(sec: float) -> str:
+        sec = int(sec)
+        if sec < 60:
+            return f"{sec} ث"
+        if sec < 3600:
+            return f"{sec // 60} د"
+        return f"{sec // 3600} س و{sec % 3600 // 60} د"
 
     @staticmethod
     def _size(n: int) -> str:
@@ -616,11 +687,14 @@ class SettingsWindow:
         self._refresh_models()
         self.app.on_settings_changed()  # يحدّث حالة المحرّك في الصفحة الرئيسية
 
-    def _bg(self, title: str, fn) -> None:
-        if self.app.bg.running:
-            messagebox.showinfo(title, "توجد عملية تنزيل أو نسخ جارية.", parent=self.win)
+    def _bg(self, title: str, fn, key: str = "", measure=None) -> None:
+        bg = self.app.bg
+        if bg.running or bg.paused:
+            messagebox.showinfo(title, "توجد عملية تنزيل جارية أو متوقفة مؤقتاً. أكملها أو ألغها أولاً.",
+                                parent=self.win)
             return
-        self.app.bg.start(title, fn)
+        bg.start(title, fn, key, measure)
+        self._refresh_models()
 
     def _download_engine(self, eid: str, spec: cat.ModelSpec | None) -> None:
         if spec is None:
@@ -635,12 +709,15 @@ class SettingsWindow:
         need_llama = mm.llama_exe() is None
 
         def work(pr, stop):
-            if need_llama:
+            if need_llama and mm.llama_exe() is None:
                 mm.download_llama(pr, stop)
             mm.download_model(spec, pr, stop)
             return f"تم تنزيل {spec.label} والتحقق منه."
 
-        self._bg("تنزيل النموذج", work)
+        files = list(zip(mm.model_paths(spec), (spec.model, spec.mmproj)))
+        if need_llama:
+            files.append((mm.llama_root() / cat.LLAMA_ZIP.name, cat.LLAMA_ZIP))
+        self._bg("تنزيل النموذج", work, spec.id, lambda: _on_disk(files))
 
     def _download_llama(self) -> None:
         if mm.llama_exe():
@@ -698,6 +775,15 @@ class SettingsWindow:
 
     def _poll_bg(self) -> None:
         bg = self.app.bg
+        shape = (bg.key, bg.running, bg.paused)
+        if bg.key and (bg.running or bg.paused):
+            if shape != self._bg_shape:          # تغيّر الزر (إيقاف مؤقت ↔ استئناف): يُعاد رسم القائمة
+                self._bg_shape = shape
+                self._refresh_models()
+            self._update_row_progress()
+            self._bg_was_running = bg.running
+            return
+        self._bg_shape = shape
         if bg.running:
             if not self.dl_row.winfo_ismapped():
                 self.dl_row.pack(fill="x", pady=(px(S2), 0))
@@ -727,7 +813,9 @@ class SettingsWindow:
                 "• onnxruntime وnumpy وopencv وpyclipper من pypi.org\n\n"
                 f"إلى {pe.root()}\nمع التحقق من الحجم والبصمة. يمكن الإلغاء والاستئناف لاحقاً.", parent=self.win):
             return
-        self._bg("تنزيل PaddleOCR", lambda pr, st: pe.install(pr, st))
+        files = [(pe.root() / "downloads" / i.file.name, i.file) for i in pe.ITEMS]
+        self._bg("تنزيل PaddleOCR", lambda pr, st: pe.install(pr, st), "paddle",
+                 lambda: (pe.total_size(), pe.total_size()) if pe.is_installed() else _on_disk(files))
 
     def _paddle_quick_test(self) -> None:
         from .. import paddle_engine as pe

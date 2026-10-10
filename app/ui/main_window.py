@@ -68,16 +68,24 @@ class BgTask:
         self.total = 0
         self.result = ""
         self.error = ""
+        # key: المحرّك الجاري تنزيله (يُعرض التقدم في صفه). measure: (المنجز، الكلي) من الملفات على القرص،
+        # فتبقى النسبة صحيحة بعد الاستئناف. الإيقاف المؤقت يبقي الجزء المنزّل (.part)، والاستئناف يكمل منه.
+        self.key = ""
+        self.paused = False
+        self._args = None
+        self._measure = None
+        self._speed: list[tuple[float, int]] = []
 
     @property
     def running(self) -> bool:
         return self.thread is not None and self.thread.is_alive()
 
-    def start(self, title: str, fn) -> bool:
+    def start(self, title: str, fn, key: str = "", measure=None) -> bool:
         if self.running:
             return False
         self.stop = threading.Event()
         self.title, self.label, self.done, self.total, self.result, self.error = title, "", 0, 0, "", ""
+        self.key, self.paused, self._args, self._measure, self._speed = key, False, (title, fn, key, measure), measure, []
 
         def progress(name, done, total):
             self.label, self.done, self.total = name, done, total
@@ -86,7 +94,7 @@ class BgTask:
             try:
                 self.result = fn(progress, self.stop)
             except mm.Cancelled:
-                self.result = "أُلغي. يُستأنف التنزيل من حيث توقف."
+                self.result = "" if self.paused else "أُلغي. يُستأنف التنزيل من حيث توقف عند الضغط على «تنزيل» مرة أخرى."
             except Exception as e:
                 log.exception("فشل %s", title)
                 self.error = str(e)
@@ -94,6 +102,42 @@ class BgTask:
         self.thread = threading.Thread(target=work, daemon=True)
         self.thread.start()
         return True
+
+    def pause(self) -> None:
+        if self.running:
+            self.paused = True
+            self.stop.set()
+
+    def resume(self) -> bool:
+        if self.running or not self.paused or not self._args:
+            return False
+        return self.start(*self._args)
+
+    def cancel(self) -> None:
+        """إيقاف هذه المرة؛ الجزء المنزّل يبقى على القرص فيُستأنف لاحقاً بزر «تنزيل»."""
+        self.stop.set()
+        self.paused = False
+        if not self.running:
+            self.key = ""
+
+    def overall(self) -> tuple[int, int, float | None]:
+        """(المنجز، الكلي، الثواني المتبقية تقديراً) للعمل كله، لا للملف الحالي فقط."""
+        done, total = self.done, self.total
+        if self._measure is not None:
+            try:
+                done, total = self._measure()
+            except OSError:
+                pass
+        now = time.monotonic()
+        if self.running and not self.label.startswith("تحقق"):
+            self._speed.append((now, done))
+            self._speed = [x for x in self._speed if now - x[0] <= 15]
+        eta = None
+        if len(self._speed) >= 2 and total:
+            (t0, d0), (t1, d1) = self._speed[0], self._speed[-1]
+            if t1 > t0 and d1 > d0:
+                eta = (total - done) / ((d1 - d0) / (t1 - t0))
+        return done, total, eta
 
 
 class MainWindow:
