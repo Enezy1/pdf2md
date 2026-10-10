@@ -67,7 +67,7 @@ def cleanup_work_dir(days: int = WORK_KEEP_DAYS) -> int:
 
 
 API_BATCH_SIZES = (1, 2, 3, 5)
-ENGINE_MODES = ("local", "api")
+ENGINE_MODES = ("auto", "local", "api")
 SCAN_ENGINES = ("local", "paddle", "paddle_local")
 
 
@@ -86,7 +86,7 @@ class Settings:
     # المحرّك المحلي: معرّف النموذج من models_catalog ("" = بدون محرّك)
     local_model: str = ""
     use_local_engine: bool = False
-    # طريقة قراءة الصفحات المصوّرة: "text" (طبقة النص فقط) أو "local" أو "api"
+    # طريقة قراءة الصفحات المصوّرة: "auto" (البرنامج يختار لكل صفحة: داخلي ← OCR ← ذكاء اصطناعي) أو "local" أو "api"
     engine_mode: str = ""
     # فحص الصفحات النصية "السليمة ظاهرياً" بـ OCR ومقارنة النتيجتين
     verify_text_with_ocr: bool = False

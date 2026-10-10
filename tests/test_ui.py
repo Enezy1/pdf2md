@@ -89,3 +89,25 @@ class DiagnosticsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AutoModeTests(MainWindowModeTests):
+    """"تلقائي": متاح دائماً؛ البوابة تُفتح فقط مع مزوّد مفعّل، والصفحات المصوّرة تُرسل حسب الموجّه."""
+
+    def test_auto_without_provider_stays_local(self):
+        self.app._set_mode("auto")
+        self.app._refresh_mode()
+        self.assertEqual(self.app.mode_var.get(), "auto")
+        self.assertEqual(str(self.app.mode_buttons["auto"].cget("state")), "normal")
+        self.assertEqual(self.app.gate.mode, LOCAL)
+        self.assertTrue(self.app.settings.api_for_scanned)
+
+    def test_auto_with_provider_opens_gate(self):
+        cfg = self.app.provider_config
+        pid = next(iter(cfg.specs))
+        cfg.state(pid).enabled = True
+        self.app.secrets = FakeSecrets({pid: "k"})
+        self.app._refresh_mode()
+        self.app._set_mode("auto")
+        self.assertEqual(self.app.gate.mode, CLOUD)
+        self.assertTrue(self.app._auto_tiers())

@@ -252,7 +252,8 @@ class MainWindow:
         tk.Label(row_a, text=R("نمط المعالجة:"), font=ui._tkfont(15, "bold"), foreground=t["accent_text"],
                  background=t["card"],
                  borderwidth=0).pack(side="right", padx=(0, px(S3)))
-        self.seg = ui.Segmented(row_a, [("local", "داخلي (بدون إنترنت)", ""), ("api", "عبر المواقع (AI Cloud)", "")],
+        self.seg = ui.Segmented(row_a, [("auto", "تلقائي", ""), ("local", "داخلي (بدون إنترنت)", ""),
+                                        ("api", "عبر المواقع (AI Cloud)", "")],
                                 self.mode_var, self._on_mode)
         self.seg.pack(side="right")
         self.mode_buttons = self.seg.buttons
@@ -358,19 +359,25 @@ class MainWindow:
 
     # ------------------------------------------------------------ الوضع
     def _gate_mode(self) -> str:
-        return CLOUD if self.settings.engine_mode == "api" else LOCAL
+        """"تلقائي" يفتح البوابة فقط إذا وُجد مزوّد مفعّل بمفتاح؛ وإلا يبقى داخلياً بالكامل."""
+        if self.settings.engine_mode == "api":
+            return CLOUD
+        if self.settings.engine_mode == "auto" and self.provider_config.active(self.secrets):
+            return CLOUD
+        return LOCAL
 
     def _set_mode(self, mode: str) -> None:
         self.mode_var.set(mode)
         self.settings.engine_mode = mode
         self.settings.use_local_engine = mode == "local"
-        self.settings.api_for_scanned = mode == "api"
+        self.settings.api_for_scanned = mode in ("api", "auto")
         self.settings.save()
         self.gate.set_mode(self._gate_mode())
 
     def _on_mode(self) -> None:
         mode = self.mode_var.get()
-        if mode == "api" and not self.settings.cloud_notice_dismissed:
+        cloud = mode == "api" or (mode == "auto" and self.provider_config.active(self.secrets))
+        if cloud and not self.settings.cloud_notice_dismissed:
             ok, dismiss = self._cloud_notice()
             if not ok:
                 self.mode_var.set(self.settings.engine_mode or "local")
@@ -430,6 +437,19 @@ class MainWindow:
         t = theme.tokens()
         running = self.busy()
         self.engine_link.pack_forget()
+        if self.mode_var.get() == "auto":
+            self._engine_texts = None
+            tiers = self._auto_tiers()
+            self.engine_icon.configure(text=ui.ICON["check"] if tiers else ui.ICON["shield"],
+                                       foreground=t["ok"] if tiers else t["muted"])
+            self.engine_lbl.configure(text=R("تلقائي: " + " ← ".join(tiers) if tiers
+                                             else "تلقائي: لا يوجد محرّك (النصية فقط)"),
+                                      foreground=t["ok"] if tiers else t["muted"])
+            if not tiers:
+                self.engine_link.pack(side="right", padx=px(S2), after=self.engine_lbl)
+            if not running:
+                self.start_btn.configure(text=R("ابدأ"))
+            return
         if self.mode_var.get() == "api":
             if active is None:
                 active = self.provider_config.active(self.secrets)
@@ -455,6 +475,19 @@ class MainWindow:
             self.engine_link.pack(side="right", padx=px(S2), after=self.engine_lbl)
         if not running:
             self.start_btn.configure(text=R("ابدأ"))
+
+    def _auto_tiers(self) -> list[str]:
+        """درجات "تلقائي" المتاحة الآن، من الأخف للأقوى: داخلي ← OCR ← ذكاء اصطناعي."""
+        from .. import engine_choice as ec
+        tiers = []
+        if ec.effective(self.settings)[0] != ec.NONE:
+            tiers.append("داخلي")
+        kinds = {spec.kind for spec, _st, _k in self.provider_config.active(self.secrets)}
+        if "ocr" in kinds:
+            tiers.append("OCR")
+        if kinds - {"ocr"}:
+            tiers.append("ذكاء اصطناعي")
+        return tiers
 
     def open_settings(self, tab: str = "") -> None:
         from .settings_window import SettingsWindow
@@ -894,6 +927,7 @@ class MainWindow:
         out = self.output_dir()
         if not jobs or out is None:
             return
+        self.settings.api_for_scanned = self.settings.engine_mode in ("api", "auto")
         self.gate.set_mode(self._gate_mode())
         spec = None
         use_paddle = False
@@ -907,6 +941,22 @@ class MainWindow:
                                  "[غير مقروء].\nلتثبيته: الإعدادات ← داخلي.\n\nمتابعة بدونه؟"):
                     return
                 spec = None
+        elif self.settings.engine_mode == "auto":
+            # تلقائي: النصية من طبقة النص دائماً. المصوّرة: PaddleOCR أولاً (إن ثُبّت) ثم الموجّه يقرر لكل صفحة:
+            # تبقى داخلية، أو OCR خارجي للتأكد من الأرقام/إعادة القراءة، أو الذكاء الاصطناعي للجداول والصعب.
+            # بلا مزوّد: داخلي بالكامل مع تنبيه بما يُشك فيه. بلا Paddle وبلا مزوّد: النموذج المحلي إن وُجد.
+            from .. import engine_choice as ec
+            from .. import paddle_engine as pe
+            online = bool(self.provider_config.active(self.secrets))
+            use_paddle = pe.is_available()
+            mode, spec = ec.effective(self.settings)
+            if use_paddle or online:
+                spec = None  # النموذج المحلي بطيء: لا يُشغَّل إن وُجد Paddle أو مزوّد
+            if not use_paddle and not online and spec is None:
+                if not messagebox.askyesno(
+                        "تلقائي", "لا يوجد محرّك داخلي ولا مزوّد مفعّل: ستُستخرج الصفحات النصية فقط، وتبقى المصوّرة "
+                                  "[غير مقروء].\nثبّت PaddleOCR من الإعدادات ← داخلي، أو أضف مفتاحاً.\n\nمتابعة؟"):
+                    return
         elif not self.provider_config.active(self.secrets):
             messagebox.showinfo("عبر المواقع", "لا يوجد مزوّد مفعّل بمفتاح.")
             return
@@ -964,7 +1014,8 @@ class MainWindow:
                 return
             ctx.provider = self.active_provider
             ctx.emit("log", text=f"المحرّك جاهز على {self.active_provider.base_url}")
-        if self.settings.engine_mode == "api":
+        if self.settings.engine_mode == "api" or (self.settings.engine_mode == "auto"
+                                                  and self.provider_config.active(self.secrets)):
             ctx.api = self._make_api_runner(ctx)
         try:
             run_batch(jobs, ctx)
