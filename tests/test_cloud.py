@@ -471,7 +471,7 @@ class CatalogTests(unittest.TestCase):
     def test_catalog_loads_with_dates(self):
         specs = load_catalog(CATALOG_PATH)
         ids = {s.id for s in specs}
-        self.assertTrue({"gemini", "groq", "mistral", "cloudflare", "nvidia", "openrouter", "github"} <= ids)
+        self.assertTrue({"gemini", "groq", "mistral", "cloudflare", "nvidia", "openrouter"} <= ids)
         for s in specs:
             self.assertRegex(s.verified_on, r"^\d{4}-\d{2}-\d{2}$", s.id)
 
@@ -482,7 +482,7 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(cfg.on_key_saved("verified"))
         self.assertFalse(cfg.on_key_saved("mistral"))
         self.assertFalse(cfg.state("mistral").enabled)
-        self.assertFalse(cfg.can_enable("github")[0])
+        self.assertNotIn("github", {s.id for s in load_catalog()})
 
     def test_cloudflare_needs_account_id_and_counter_is_approx(self):
         cf = {s.id: s for s in load_catalog()}["cloudflare"]

@@ -1,9 +1,8 @@
 """نافذة الإعدادات: المزوّدات | داخلي | متقدم.
 
 - المزوّدات: صف مختصر لكل مزوّد (الاسم، الحالة، تفعيل)؛ المفتاح يُحرَّر بفتح الصف، والتفاصيل في "تفاصيل".
-  المزوّدات المتوقفة مطوية في الأسفل.
-- داخلي: النموذج وتنزيله وحالة المحرّك، و"مختبر النماذج" لمقارنة النماذج على صفحات مختارة.
-- متقدم: كل ما تبقى.
+- داخلي: النموذج وتنزيله وحالة المحرّك.
+- متقدم: كل ما تبقى، و"مختبر النماذج" ضمن الخيارات الإضافية المطوية.
 """
 
 from __future__ import annotations
@@ -237,7 +236,6 @@ class SettingsWindow:
         self.prov_body = ui.Frame(root)
         self.prov_body.pack(fill="x")
         self._open_editor: str | None = None
-        self._retired_shown = False
         self._render_providers()
 
     def _render_providers(self) -> None:
@@ -247,27 +245,17 @@ class SettingsWindow:
         for w in self.prov_body.winfo_children():
             w.destroy()
         cfg = self.app.provider_config
-        specs = sorted(cfg.specs.values(), key=lambda s: (s.retired, s.custom, list(cfg.specs).index(s.id)))
+        specs = sorted(cfg.specs.values(), key=lambda s: (s.custom, list(cfg.specs).index(s.id)))
         # شبكة واحدة لكل الصفوف حتى تتحاذى الأعمدة (من اليمين: الاسم، الحالة، … ، تفعيل، مفتاح، تفاصيل)
         g = self.prov_body
         g.columnconfigure(3, weight=1)
         self._prov_row = 0
-        live = [sp for sp in specs if not sp.retired]
-        retired = [sp for sp in specs if sp.retired]
-        for spec in live:
+        # الترتيب حسب الحالة: المفعّل أولاً، ثم ما له مفتاح محفوظ، ثم بلا مفتاح (والترتيب السابق داخل كل فئة)
+        def rank(sp):
+            has_key = self.app.secrets.has_key(sp.id)
+            return 0 if has_key and cfg.state(sp.id).enabled else 1 if has_key else 2
+        for spec in sorted(specs, key=rank):
             self._provider_row(spec)
-        if retired:
-            label = f"مزوّدون متوقفون ({len(retired)}) " + ("▴" if self._retired_shown else "▾")
-            ui.link(g, label, self._toggle_retired).grid(
-                row=self._prov_row, column=0, columnspan=6, sticky="e", pady=(px(S3), 0))
-            self._prov_row += 1
-            if self._retired_shown:
-                for spec in retired:
-                    self._provider_row(spec)
-
-    def _toggle_retired(self) -> None:
-        self._retired_shown = not self._retired_shown
-        self._render_providers()
 
     def _toggle_editor(self, pid: str) -> None:
         self._open_editor = None if self._open_editor == pid else pid
@@ -281,7 +269,7 @@ class SettingsWindow:
         can, _why = cfg.can_enable(spec.id)
         pad = {"pady": px(S1)}
 
-        name = spec.name + (" (متوقف)" if spec.retired else "")
+        name = spec.name
         ui.Label(g, text=R(name), anchor="e").grid(row=r, column=5, sticky="e", padx=(px(S2), 0), **pad)
         # الحالة بالكلمات لا بالرموز: تُقرأ ويفهم منها لماذا "تفعيل" معطّل
         if not can:
@@ -353,6 +341,7 @@ class SettingsWindow:
             st.enabled = want
             cfg.save()
             self.app.on_settings_changed()
+            self._render_providers()  # يعيد الترتيب: المفعّل يصعد للأعلى
 
         if can and has_key:
             ui.Check(g, text="تفعيل", variable=en_var, command=toggle).grid(
@@ -518,7 +507,6 @@ class SettingsWindow:
         self._bg_was_running = False
         self._bg_shape = None
         self._refresh_models()
-        self._build_lab(root)
 
     def _refresh_models(self) -> None:
         """يرسم قائمة المحرّكات: نموذج تحت نموذج، ولكل واحد حالته وتنزيل/حذف وتفعيل."""
@@ -535,6 +523,16 @@ class SettingsWindow:
         pad = {"pady": px(S1)}
         rows = [("paddle", "PaddleOCR (تجريبي)", None)] + [(m.id, m.label, m) for m in cat.MODELS]
         exe = mm.llama_exe()
+
+        # الترتيب حسب الحالة: المفعّل أولاً، ثم المثبّت، ثم غير المثبّت (والترتيب الأصلي داخل كل فئة)
+        def rank(row):
+            spec = row[2]
+            if spec is None:
+                return 0 if mode in (ec.PADDLE, ec.PADDLE_LOCAL) else 1 if pe.is_installed() else 2
+            if mode in (ec.LOCAL, ec.PADDLE_LOCAL) and active_spec is not None and active_spec.id == spec.id:
+                return 0
+            return 1 if mm.is_installed(spec) else 2
+        rows.sort(key=rank)
         for i, (eid, name, spec) in enumerate(rows):
             if spec is None:
                 why = pe.unsupported_reason()
@@ -1207,6 +1205,8 @@ class SettingsWindow:
         r.pack(fill="x", pady=(px(S2), 0))
         ui.Button(r, text=R("سجل الإرسال"), command=self._open_sent_log).pack(side="right")
         ui.Button(r, text=R("تصدير معلومات التشخيص"), command=self._export_diag).pack(side="right", padx=px(S2))
+
+        self._build_lab(more)  # مختبر النماذج: أداة مقارنة لا يحتاجها المستخدم عادة
 
     def _checks(self, parent, items) -> None:
         for label, attr in items:

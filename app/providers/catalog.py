@@ -114,6 +114,8 @@ def load_catalog(path: Path = CATALOG_PATH) -> list[ProviderSpec]:
         return []
     out = []
     for d in data.get("providers", []):
+        if d.get("retired"):
+            continue  # المزوّد المتوقف لا يُعرض ولا يُستخدم
         try:
             out.append(_spec_from(d))
         except (TypeError, ValueError) as e:

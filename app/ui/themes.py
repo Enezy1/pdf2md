@@ -83,8 +83,8 @@ THEMES: dict[str, dict] = {
         },
         "dark": {
             "bg": "#0e1218", "deep": "#090c11", "card": "#151a22", "raised": "#1d2430", "line": "#28303d",
-            "strong": "#5f6f88", "fg": "#e8edf5", "muted": "#9aa5b8", "accent": "#5ab4ee", "on_accent": "#06243a",
-            "accent_text": "#86c9f6", "accent2": "#5ab4ee", "select": "#17324a", "ok": "#4fcf9e",
+            "strong": "#5f6f88", "fg": "#e8edf5", "muted": "#9aa5b8", "accent": "#1f3fa0", "on_accent": "#ffffff",
+            "accent_text": "#86c9f6", "accent2": "#1f3fa0", "select": "#17324a", "ok": "#4fcf9e",
             "warn": "#f0b84a", "err": "#f28b82", "disabled": "#5f6f88",
         },
     },

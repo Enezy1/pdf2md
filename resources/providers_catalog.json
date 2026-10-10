@@ -262,35 +262,6 @@
       "fallback_models": []
     },
     {
-      "id": "github",
-      "name": "GitHub Models",
-      "kind": "openai",
-      "description": "كانت خدمة GitHub لتجربة النماذج مجاناً؛ أُوقفت نهائياً في 30 يوليو 2026.",
-      "base_url": "https://models.github.ai/inference",
-      "key_url": "https://github.com/settings/tokens",
-      "default_model": "",
-      "accepts_images": true,
-      "max_pages_per_call": 1,
-      "free_tier": {
-        "available": false,
-        "card_required": false,
-        "phone_verification": false,
-        "limits": "الخدمة متوقفة (الواجهة البرمجية لم تعد متاحة لأي عميل)",
-        "rpm": null,
-        "rpd": null
-      },
-      "data_training": "—",
-      "quota_unit": "requests",
-      "extra_fields": [],
-      "verified_on": "2026-10-05",
-      "unverified": [],
-      "retired": true,
-      "sources": [
-        "https://docs.github.com/en/github-models/use-github-models/prototyping-with-ai-models"
-      ],
-      "fallback_models": []
-    },
-    {
       "id": "ocrspace",
       "name": "OCR.space",
       "kind": "ocr",
