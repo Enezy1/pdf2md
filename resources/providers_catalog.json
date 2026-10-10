@@ -1,0 +1,330 @@
+{
+  "format": "pdf2md-providers-catalog",
+  "version": 1,
+  "_comment": "يمكن تعديل هذا الملف بدون تغيير الكود. أي بند لم يُتحقق منه من التوثيق الرسمي يُذكر في unverified، والمزوّد الذي يحمل بنداً unverified يظهر بتحذير ولا يُفعَّل تلقائياً عند إدخال مفتاحه. fallback_models: نماذج بديلة تُجرَّب بالترتيب إذا كان النموذج الأساسي مشغولاً (503).",
+  "providers": [
+    {
+      "id": "gemini",
+      "name": "Google Gemini",
+      "kind": "gemini",
+      "description": "نماذج Google عبر Google AI Studio، تقرأ الصور والنصوص.",
+      "base_url": "https://generativelanguage.googleapis.com",
+      "key_url": "https://aistudio.google.com/apikey",
+      "default_model": "gemini-3.5-flash",
+      "accepts_images": true,
+      "max_pages_per_call": 5,
+      "free_tier": {
+        "available": true,
+        "card_required": false,
+        "phone_verification": false,
+        "limits": "الحدود تُعرض في AI Studio لكل حساب (لا تنشرها Google كأرقام ثابتة)",
+        "rpm": null,
+        "rpd": null
+      },
+      "data_training": "الخطة المجانية: المحتوى يُستخدم لتحسين منتجات Google (حسب صفحة الأسعار). الخطة المدفوعة: لا.",
+      "quota_unit": "requests",
+      "extra_fields": [],
+      "verified_on": "2026-10-05",
+      "unverified": [
+        "limits",
+        "card_required",
+        "phone_verification",
+        "accepts_images"
+      ],
+      "retired": false,
+      "sources": [
+        "https://ai.google.dev/gemini-api/docs/pricing",
+        "https://ai.google.dev/gemini-api/docs/models",
+        "https://ai.google.dev/gemini-api/docs/api-key",
+        "https://ai.google.dev/gemini-api/docs/rate-limits"
+      ],
+      "fallback_models": [
+        "gemini-3.5-flash-lite",
+        "gemini-2.5-flash"
+      ]
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI (ChatGPT)",
+      "kind": "openai",
+      "description": "واجهة OpenAI الرسمية (نماذج GPT التي يقوم عليها ChatGPT). مدفوعة حسب الاستخدام؛ اشتراك ChatGPT لا يشمل الـ API.",
+      "base_url": "https://api.openai.com/v1",
+      "key_url": "https://platform.openai.com/api-keys",
+      "default_model": "gpt-6-luna",
+      "accepts_images": true,
+      "max_pages_per_call": 3,
+      "free_tier": {
+        "available": false,
+        "card_required": true,
+        "phone_verification": false,
+        "limits": "حسب مستوى الحساب (Tier) والرصيد المدفوع"
+      },
+      "data_training": "بحسب سياسة OpenAI المعلنة لا تُستخدم بيانات الـ API للتدريب افتراضياً، وتُحفظ حتى 30 يوماً لرصد الإساءة.",
+      "quota_unit": "requests",
+      "extra_fields": [],
+      "verified_on": "2026-10-06",
+      "unverified": [
+        "limits",
+        "data_training",
+        "max_pages_per_call"
+      ],
+      "retired": false,
+      "sources": [
+        "https://developers.openai.com/api/docs/models",
+        "https://platform.openai.com/docs/guides/images-vision",
+        "https://openai.com/enterprise-privacy/"
+      ],
+      "fallback_models": []
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "kind": "openai",
+      "description": "خدمة استدلال سريعة جداً لنماذج مفتوحة، بصيغة OpenAI.",
+      "base_url": "https://api.groq.com/openai/v1",
+      "key_url": "https://console.groq.com/keys",
+      "default_model": "qwen/qwen3.8-27b",
+      "accepts_images": true,
+      "max_pages_per_call": 3,
+      "free_tier": {
+        "available": true,
+        "card_required": false,
+        "phone_verification": false,
+        "limits": "30 طلب/دقيقة، 1000 طلب/يوم للنموذج qwen/qwen3.8-27b؛ حتى 3 صور لكل طلب",
+        "rpm": 30,
+        "rpd": 1000
+      },
+      "data_training": "لا يحتفظ ببيانات الاستدلال افتراضياً (حتى 30 يوماً لاستقصاء الأعطال أو الإساءة). لا يذكر التوثيق صراحة استخدامها للتدريب.",
+      "quota_unit": "requests",
+      "extra_fields": [],
+      "verified_on": "2026-10-05",
+      "unverified": [
+        "card_required",
+        "phone_verification",
+        "data_training"
+      ],
+      "retired": false,
+      "sources": [
+        "https://console.groq.com/docs/rate-limits",
+        "https://console.groq.com/docs/vision",
+        "https://console.groq.com/docs/your-data"
+      ],
+      "fallback_models": []
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral",
+      "kind": "openai",
+      "description": "شركة فرنسية لنماذج اللغة، خطتها المجانية Experiment تحتاج تحققاً بالهاتف.",
+      "base_url": "https://api.mistral.ai/v1",
+      "key_url": "https://console.mistral.ai/api-keys",
+      "default_model": "mistral-small-2506",
+      "accepts_images": true,
+      "max_pages_per_call": 5,
+      "free_tier": {
+        "available": true,
+        "card_required": false,
+        "phone_verification": true,
+        "limits": "حسب مصادر غير رسمية: طلب واحد/ثانية تقريباً؛ الأرقام الدقيقة في Admin Console → Limits",
+        "rpm": null,
+        "rpd": null
+      },
+      "data_training": "حسب مصادر غير رسمية: طلبات خطة Experiment قد تُستخدم لتدريب نماذج Mistral (مع إمكانية إلغاء الاشتراك).",
+      "quota_unit": "requests",
+      "extra_fields": [],
+      "verified_on": "2026-10-05",
+      "unverified": [
+        "base_url",
+        "limits",
+        "card_required",
+        "phone_verification",
+        "data_training",
+        "key_url"
+      ],
+      "retired": false,
+      "sources": [
+        "https://docs.mistral.ai/capabilities/vision/"
+      ],
+      "fallback_models": []
+    },
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare Workers AI",
+      "kind": "openai",
+      "description": "نماذج تعمل على شبكة Cloudflare، حصتها اليومية بوحدة \"النيورون\" لا بعدد الطلبات.",
+      "base_url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
+      "key_url": "https://dash.cloudflare.com/profile/api-tokens",
+      "default_model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+      "accepts_images": true,
+      "max_pages_per_call": 1,
+      "free_tier": {
+        "available": true,
+        "card_required": false,
+        "phone_verification": false,
+        "limits": "10,000 نيورون/يوم مجاناً (عدد الصفحات المقابل تقريبي ويختلف حسب حجم الصورة والنص)",
+        "rpm": null,
+        "rpd": null
+      },
+      "data_training": "لم يُتحقق منه من التوثيق.",
+      "quota_unit": "neurons",
+      "extra_fields": [
+        {
+          "id": "account_id",
+          "label": "معرّف الحساب (Account ID)",
+          "secret": false
+        }
+      ],
+      "verified_on": "2026-10-05",
+      "unverified": [
+        "card_required",
+        "data_training",
+        "key_url",
+        "max_pages_per_call"
+      ],
+      "retired": false,
+      "sources": [
+        "https://developers.cloudflare.com/workers-ai/platform/pricing/",
+        "https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/",
+        "https://developers.cloudflare.com/workers-ai/models/"
+      ],
+      "fallback_models": []
+    },
+    {
+      "id": "nvidia",
+      "name": "NVIDIA NIM",
+      "kind": "openai",
+      "description": "منصة NVIDIA (build.nvidia.com) لتجربة مئات النماذج المفتوحة مجاناً ضمن برنامج المطوّرين.",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "key_url": "https://build.nvidia.com/settings/api-keys",
+      "default_model": "meta/llama-3.2-90b-vision-instruct",
+      "accepts_images": true,
+      "max_pages_per_call": 1,
+      "free_tier": {
+        "available": true,
+        "card_required": false,
+        "phone_verification": false,
+        "limits": "حسب مصادر غير رسمية: حتى 40 طلب/دقيقة لكل نموذج (أفضل جهد، غير مضمون)",
+        "rpm": 40,
+        "rpd": null
+      },
+      "data_training": "لم يُتحقق منه من التوثيق.",
+      "quota_unit": "requests",
+      "extra_fields": [],
+      "verified_on": "2026-10-05",
+      "unverified": [
+        "limits",
+        "card_required",
+        "phone_verification",
+        "data_training",
+        "key_url",
+        "max_pages_per_call"
+      ],
+      "retired": false,
+      "sources": [
+        "https://docs.api.nvidia.com/nim/reference/llm-apis",
+        "https://integrate.api.nvidia.com/v1/models"
+      ],
+      "fallback_models": []
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "kind": "openai",
+      "description": "بوابة واحدة لنماذج كثيرة من مزوّدين مختلفين؛ النماذج المنتهية بـ :free مجانية بحدود يومية.",
+      "base_url": "https://openrouter.ai/api/v1",
+      "key_url": "https://openrouter.ai/settings/keys",
+      "default_model": "google/gemma-4-31b-it:free",
+      "accepts_images": true,
+      "max_pages_per_call": 3,
+      "free_tier": {
+        "available": true,
+        "card_required": false,
+        "phone_verification": false,
+        "limits": "نماذج :free: 20 طلب/دقيقة و50 طلب/يوم (أو 1000/يوم بعد شراء 10 أرصدة على الأقل)",
+        "rpm": 20,
+        "rpd": 50
+      },
+      "data_training": "يختلف حسب المزوّد الفعلي خلف كل نموذج مجاني؛ بعضها يحتفظ بالمدخلات أو يستخدمها. راجع إعدادات الخصوصية في حسابك.",
+      "quota_unit": "requests",
+      "extra_fields": [],
+      "verified_on": "2026-10-05",
+      "unverified": [
+        "card_required",
+        "phone_verification",
+        "data_training",
+        "max_pages_per_call"
+      ],
+      "retired": false,
+      "sources": [
+        "https://openrouter.ai/docs/api-reference/limits",
+        "https://openrouter.ai/api/v1/models"
+      ],
+      "fallback_models": []
+    },
+    {
+      "id": "github",
+      "name": "GitHub Models",
+      "kind": "openai",
+      "description": "كانت خدمة GitHub لتجربة النماذج مجاناً؛ أُوقفت نهائياً في 30 يوليو 2026.",
+      "base_url": "https://models.github.ai/inference",
+      "key_url": "https://github.com/settings/tokens",
+      "default_model": "",
+      "accepts_images": true,
+      "max_pages_per_call": 1,
+      "free_tier": {
+        "available": false,
+        "card_required": false,
+        "phone_verification": false,
+        "limits": "الخدمة متوقفة (الواجهة البرمجية لم تعد متاحة لأي عميل)",
+        "rpm": null,
+        "rpd": null
+      },
+      "data_training": "—",
+      "quota_unit": "requests",
+      "extra_fields": [],
+      "verified_on": "2026-10-05",
+      "unverified": [],
+      "retired": true,
+      "sources": [
+        "https://docs.github.com/en/github-models/use-github-models/prototyping-with-ai-models"
+      ],
+      "fallback_models": []
+    },
+    {
+      "id": "ocrspace",
+      "name": "OCR.space",
+      "kind": "ocr",
+      "description": "يقرأ الصفحات المصوّرة بالعربية، ثم يصحّح النصَّ نموذجٌ آخر مفعّل.",
+      "base_url": "https://api.ocr.space/parse/image",
+      "key_url": "https://ocr.space/ocrapi/freekey",
+      "default_model": "engine3",
+      "accepts_images": true,
+      "max_pages_per_call": 1,
+      "free_tier": {
+        "available": true,
+        "card_required": false,
+        "phone_verification": false,
+        "limits": "1MB للصورة، 500 طلب يومياً لكل IP، 25000 شهرياً، و1000 تحويل بالمحرّك 3 شهرياً",
+        "rpm": null,
+        "rpd": 500,
+        "rpmonth": 25000,
+        "engine3_monthly": 1000
+      },
+      "data_training": "غير مذكور في صفحة الـ API — راجع سياسة الخصوصية لدى OCR.space.",
+      "quota_unit": "requests",
+      "extra_fields": [],
+      "verified_on": "2026-10-09",
+      "unverified": [
+        "data_training",
+        "rpm",
+        "arabic_engine"
+      ],
+      "retired": false,
+      "sources": [
+        "https://ocr.space/OCRAPI",
+        "https://forum.ocr.space/t/free-api-fail-with-arabic-langage/13889"
+      ],
+      "fallback_models": []
+    }
+  ]
+}

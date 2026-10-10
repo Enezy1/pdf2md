@@ -1,0 +1,12 @@
+PyMuPDF>=1.24
+Pillow>=10
+# مزوّدات الـ API (المرحلة 3)
+google-genai>=1.0
+httpx>=0.27
+# اختياري: حفظ المفاتيح في مدير بيانات الاعتماد في ويندوز. بدونها يُستخدم DPAPI مباشرة.
+keyring>=24
+# الواجهة: ثيم ويندوز 11 (Fluent) واتباع وضع النظام الفاتح/الداكن
+sv-ttk>=2.6
+darkdetect>=0.8
+# الواجهة الرئيسية: CustomTkinter (أيقونات Segoe Fluent Icons وخط IBM Plex Arabic إن وُجدا، وإلا الخط الافتراضي)
+customtkinter>=5.2
