@@ -27,7 +27,6 @@ LOCAL, VERIFY, REREAD, VISION = "local", "verify", "reread", "vision"
 # نص ضعيف (قيست على 107 صفحة حقيقية بعد تقويم الميل): انظر text_weak
 WEAK_NOISE = 0.10
 WEAK_MEAN_CONF = 0.55
-POOR_SCAN_DPI = 150        # نفس paddle_engine.POOR_SCAN_DPI (قرار المستخدم): مسح كهذا + أرقام ⇒ إعادة قراءة
 
 _NUM = re.compile(r"\d+(?:\s?[/\-–.]\s?\d+)*")
 _NO_DIGIT = re.compile(r"\D")
@@ -301,6 +300,7 @@ def decide(text: str, confs: list[float], trouble: str = "", dpi: float | None =
         return Route(VISION, [trouble], nums, bad)
     if weak:
         return Route(REREAD, ["weak_text"], nums, bad)
+    from .paddle_engine import POOR_SCAN_DPI  # مسح أقل من 150 نقطة + أرقام ⇒ إعادة قراءة (قرار المستخدم)
     if nums and dpi is not None and dpi < POOR_SCAN_DPI:
         return Route(REREAD, ["poor_scan_digits"], nums, bad)
     if nums:

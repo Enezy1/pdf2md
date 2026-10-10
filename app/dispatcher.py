@@ -727,7 +727,6 @@ class ApiRunner:
         atomic_write_text(target, corrector.render_report(name, report))
 
 
-_MARKER_HEAD = re.compile(r"^\s*<!--\s*page\s*:\s*\d+\s*-->\s*")
 OCR_CONCURRENCY = 1            # OCR.space المجاني يرد 429 حتى على طلبين متزامنين (تجربتان 2026-10-10)
 CHAIN_BATCH = 3                 # صفحات في كل دفعة OCR + طلب تصحيح واحد
 SKIP_UNKNOWN_RATIO = 0.03       # كلمات غير معروفة للقاموس أقل من 3% ⇒ لا حاجة للمصحّح
