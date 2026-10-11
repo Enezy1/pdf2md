@@ -419,15 +419,25 @@ class InstallTests(unittest.TestCase):
             pe.install_from_folder(src)
         self.assertFalse(pe.is_installed())
 
-    def test_frozen_exe_unsupported(self):
-        self.patches[1].stop()
-        try:
-            with mock.patch.object(sys, "frozen", True, create=True):
-                self.assertIn("exe", pe.unsupported_reason())
-                with self.assertRaises(pe.PaddleError):
-                    pe.install(opener=FakeOpener(self.blobs))
-        finally:
-            self.patches[1].start()
+    def test_frozen_exe_needs_embedded_python(self):
+        """داخل exe لا مفسّر: المحرّك متاح فقط بعد فك البايثون المضمَّن؛ والتنصيب القديم يُحدَّث بتنزيله وحده."""
+        import io as _io
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("python.exe", b"MZ")
+            z.writestr("python313._pth", "python313.zip\n.\n")
+        blob = buf.getvalue()
+        py = pe.Item("python", "https://example.invalid/py.zip", FileSpec("py.zip", len(blob), hashlib.sha256(blob).hexdigest()))
+        pe.install(opener=FakeOpener(self.blobs))               # تنصيب بلا بايثون (مثل تنصيب قديم)
+        with mock.patch.object(sys, "frozen", True, create=True), mock.patch.object(pe, "PY_EMBED", py):
+            self.assertEqual(pe.unsupported_reason(), "")
+            self.assertTrue(pe.needs_python())
+            self.assertFalse(pe.is_available())
+            pe.install_python(opener=FakeOpener({py.url: blob}))
+            self.assertFalse(pe.needs_python())
+            self.assertTrue(pe.is_available())
+            self.assertEqual(pe.worker_python(), str(pe.root() / "python" / "python.exe"))
+        self.assertFalse((pe.root() / "downloads").exists())
 
     def test_pinned_catalog(self):
         real = [i for i in self.patches[0].temp_original]

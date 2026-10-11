@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-10-12 — نسخة exe
+
+- `pdf2md.spec` (PyInstaller 6.21، مجلد واحد): `python -m PyInstaller pdf2md.spec --noconfirm` ⇒ `dist\pdf2md\pdf2md.exe`
+  (~165MB). بلا نافذة سوداء. الإعدادات والمفاتيح والنماذج في %APPDATA%\pdf2md كما في python main.py.
+- أول بناء كان 775MB: بايثون الجهاز فيه torch وscipy وpandas وpyarrow تُسحب عبر استيرادات اختيارية لمكتبات أخرى
+  (networkx، fsspec…). استُبعدت في `excludes`؛ البرنامج يستورد فقط: PIL، customtkinter، sv_ttk، darkdetect، google،
+  httpx، numpy، pymupdf (+ keyring اختياري).
+- **PaddleOCR داخل exe**: يُنزَّل معه بايثون رسمي مضمَّن (python-3.13.16-embed-amd64، 11MB، بصمة مثبّتة) في
+  engines\paddle\python ويشغّل العملية المنفصلة. لم يعد شرط "بايثون 3.13" ولا "ليس exe". التنصيب القديم يظهر
+  "يحتاج تحديثاً صغيراً" وزر "تحديث" ينزّل البايثون وحده (`install_python`). paddle_worker.py يُضمَّن ملف بيانات
+  (لا يُحلَّل، وإلا سحب onnxruntime وopencv إلى البرنامج).
+- **`--selftest`** (`app/selftest.py`): بلا واجهة، يحمّل كل الوحدات، يعالج PDF مولَّداً (نصية + مصوّرة) عبر خط المعالجة
+  الحقيقي وPaddle، والنتيجة في logs\selftest.txt. نجح في exe: الوحدات، الملف، Paddle بالبايثون المضمَّن.
+- تنصيب Paddle عند المستخدم حُدّث بالبايثون المضمَّن (11MB).
+
+---
+
 ## 2026-10-11 — تجربة النماذج المحلية: Qwen3-VL 4B، وتقدم التنزيل
 
 **تقدم التنزيل**: التقدم صار في صف النموذج نفسه (شريط، نسبة، الحجم، المتبقي) مع إيقاف مؤقت/استئناف/إلغاء.

@@ -538,6 +538,8 @@ class SettingsWindow:
             if spec is None:
                 why = pe.unsupported_reason()
                 installed = pe.is_installed()
+                if not why and pe.needs_python():   # تنصيب قديم بلا البايثون المضمَّن (داخل exe)
+                    why = "يحتاج تحديثاً صغيراً (11MB)"
                 usable = installed and not why
                 active = mode in (ec.PADDLE, ec.PADDLE_LOCAL)
                 size = pe.installed_size() if installed else pe.total_size()
@@ -571,6 +573,10 @@ class SettingsWindow:
                     row=i, column=2, padx=(px(S2), px(S3)), **pad)
             if eid == "paddle" and usable:
                 ui.Button(g, text=R("اختبار سريع"), command=self._paddle_quick_test).grid(row=i, column=0, sticky="w", **pad)
+            elif eid == "paddle" and installed and pe.needs_python():
+                ui.Button(g, text=R("تحديث"), style="Accent.TButton", command=lambda: self._bg(
+                    "تحديث PaddleOCR", lambda pr, st: pe.install_python(pr, st), "")).grid(
+                    row=i, column=0, sticky="w", **pad)
             if installed or (spec is None and pe.root().exists()):
                 ui.Button(g, text=R("حذف"), width=7, command=lambda e=eid, s=spec: self._delete_engine(e, s)).grid(
                     row=i, column=1, padx=(px(S2), 0), **pad)

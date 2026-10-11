@@ -82,6 +82,14 @@ ITEMS: tuple[Item, ...] = (
 )
 
 
+# بايثون الرسمي المضمَّن (embeddable) من python.org: يشغّل العملية المنفصلة داخل نسخة exe (لا مفسّر فيها)، ولا يعتمد
+# على بايثون المثبّت على الجهاز. نفس 3.13 الذي بُنيت له ملفات wheel. البصمة محسوبة من ملف python.org (2026-10-12).
+PY_EMBED = Item("python", "https://www.python.org/ftp/python/3.13.16/python-3.13.16-embed-amd64.zip",
+                FileSpec("python-3.13.16-embed-amd64.zip", 11439094,
+                         "97dae5274cc54867065e8d5a3226e48c35017ed332a0fdb0e27d5b5821961297"))
+ITEMS = ITEMS + (PY_EMBED,)
+
+
 def total_size() -> int:
     return sum(i.file.size for i in ITEMS)
 
@@ -109,14 +117,32 @@ def worker_script() -> Path:
 
 
 def unsupported_reason() -> str:
-    """"" إذا أمكن تشغيل المحرّك في هذه البيئة، وإلا السبب."""
-    if getattr(sys, "frozen", False):
-        return "غير متاح في نسخة exe: يحتاج تشغيل البرنامج بـ python main.py."
+    """"" إذا أمكن تشغيل المحرّك في هذه البيئة، وإلا السبب. البايثون يأتي مع المحرّك نفسه (python\\)،
+    فيعمل في نسخة exe وفي python main.py بأي إصدار."""
     if sys.platform != "win32" or struct.calcsize("P") != 8:
         return "يتطلب ويندوز 64-بت."
-    if sys.version_info[:2] != PYTHON_TAG:
-        return f"يتطلب بايثون {PYTHON_TAG[0]}.{PYTHON_TAG[1]} (الحالي {sys.version_info[0]}.{sys.version_info[1]})."
     return ""
+
+
+def python_exe() -> Path | None:
+    """بايثون المحرّك المضمَّن إن نُزّل. تنصيب قديم (قبل إضافته) ليس فيه هذا المجلد."""
+    exe = root() / "python" / "python.exe"
+    return exe if exe.is_file() else None
+
+
+def worker_python() -> str | None:
+    """المفسّر الذي يشغّل العملية المنفصلة: المضمَّن أولاً، وإلا بايثون البرنامج إن كان 3.13 (وضع python main.py)."""
+    exe = python_exe()
+    if exe:
+        return str(exe)
+    if not getattr(sys, "frozen", False) and sys.version_info[:2] == PYTHON_TAG:
+        return sys.executable
+    return None
+
+
+def needs_python() -> bool:
+    """مثبّت قبل إضافة البايثون المضمَّن ولا يوجد مفسّر بديل: يكفي تنزيل البايثون وحده (11MB)."""
+    return is_installed() and worker_python() is None
 
 
 def is_installed() -> bool:
@@ -130,7 +156,7 @@ def is_installed() -> bool:
 
 
 def is_available() -> bool:
-    return is_installed() and not unsupported_reason()
+    return is_installed() and not unsupported_reason() and worker_python() is not None
 
 
 def installed_size() -> int:
@@ -163,6 +189,8 @@ def _finish_install(progress: mm.Progress | None) -> None:
             z.extractall(lib_tmp)
     shutil.rmtree(r / "lib", ignore_errors=True)
     os.replace(lib_tmp, r / "lib")
+    if (dl / PY_EMBED.file.name).is_file():
+        _extract_python(dl / PY_EMBED.file.name)
     (r / "models").mkdir(exist_ok=True)
     for i in ITEMS:
         if i.kind == "model":
@@ -174,6 +202,34 @@ def _finish_install(progress: mm.Progress | None) -> None:
     # الملفات المنزّلة لم تعد لازمة (lib وmodels تكفي)
     shutil.rmtree(dl, ignore_errors=True)
     log.info("PaddleOCR: اكتمل التنصيب في %s", r)
+
+
+def _extract_python(zip_path: Path) -> None:
+    """يفك البايثون المضمَّن إلى python\\ (مع حماية من المسارات خارج المجلد)."""
+    target = root() / "python"
+    tmp = target.with_name("python.tmp")
+    shutil.rmtree(tmp, ignore_errors=True)
+    with zipfile.ZipFile(zip_path) as z:
+        base = tmp.resolve()
+        for info in z.infolist():
+            if not str((tmp / info.filename).resolve()).startswith(str(base)):
+                raise mm.IntegrityError(f"مسار غير آمن داخل {zip_path.name}: {info.filename}")
+        z.extractall(tmp)
+    if not (tmp / "python.exe").is_file():
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise mm.IntegrityError("أرشيف البايثون لا يحتوي python.exe")
+    shutil.rmtree(target, ignore_errors=True)
+    os.replace(tmp, target)
+
+
+def install_python(progress: mm.Progress | None = None, stop: threading.Event | None = None, opener=None) -> str:
+    """لتنصيب قديم: ينزّل البايثون المضمَّن وحده (11MB) ويفكه، دون إعادة تنزيل المحرّك."""
+    _check_supported()
+    dest = _download_dir() / PY_EMBED.file.name
+    mm.download_file(PY_EMBED.url, dest, PY_EMBED.file, progress, stop, opener)
+    _extract_python(dest)
+    shutil.rmtree(_download_dir(), ignore_errors=True)
+    return "تم تحديث PaddleOCR: أُضيف البايثون المضمَّن فصار يعمل في نسخة exe أيضاً."
 
 
 def _check_supported() -> None:
@@ -248,7 +304,7 @@ class PaddleWorker:
     def __init__(self, engine_root: Path | None = None, python: str | None = None, script: Path | None = None,
                  start_timeout: float = 120, page_timeout: float = 300):
         self.engine_root = Path(engine_root or root())
-        self.python = python or sys.executable
+        self.python = python or worker_python() or sys.executable
         self.script = Path(script or worker_script())
         self.start_timeout, self.page_timeout = start_timeout, page_timeout
         self.proc: subprocess.Popen | None = None
