@@ -1,5 +1,7 @@
-# بناء نسخة exe (مجلد واحد: dist\pdf2md\pdf2md.exe):
+# بناء نسخة exe:
 #     python -m PyInstaller pdf2md.spec --noconfirm
+#   dist\pdf2md.exe          ملف واحد يحمل كل شيء — هذا الذي يُنقل لأي جهاز (لا يحتاج بايثون ولا مجلداً بجانبه)
+#   dist\pdf2md\pdf2md.exe   نسخة المجلد (أسرع فتحاً، لكن يجب نقل المجلد كاملاً مع _internal)
 # الإعدادات والمفاتيح والنماذج تبقى في %APPDATA%\pdf2md كما في python main.py.
 # PaddleOCR لا يُضمَّن هنا: يُنزَّل من الإعدادات مع بايثون مضمَّن خاص به (engines\paddle\python).
 
@@ -43,3 +45,16 @@ exe = EXE(
     upx=False,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="pdf2md", upx=False)
+
+# نسخة الملف الواحد: كل المكتبات داخل exe وتُفك في مجلد مؤقت عند الفتح (أبطأ بثوانٍ، لكن لا شيء ينقص عند النقل).
+onefile = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    [],
+    name="pdf2md",
+    console=False,
+    upx=False,
+    runtime_tmpdir=None,
+)
