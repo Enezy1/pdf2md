@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable
 
-from ..quality import repetition_problem, suspiciously_short
+from ..quality import looks_like_refusal, repetition_problem, suspiciously_short
 from ..digits import DIGITS_RULE
 from .base import OcrRequest, PageImage
 
@@ -32,6 +32,15 @@ def chunk_pages(pages: list[int], size: int) -> list[list[int]]:
         else:
             out.append([p])
     return out
+
+
+def plan_whole(pages: list[int], cap: int) -> list[list[int]]:
+    """المستند كله في طلب واحد حتى cap صفحة؛ فوقه أجزاء متساوية (41–80 ⇒ جزآن). بلا دمج ولا إعادة تقسيم."""
+    if not pages:
+        return []
+    parts = -(-len(pages) // max(1, cap))
+    size = -(-len(pages) // parts)
+    return [pages[i:i + size] for i in range(0, len(pages), size)]
 
 
 def build_prompt(pages: list[int], previous_tail: str = "") -> str:
@@ -70,6 +79,7 @@ class CheckResult:
     ok: bool
     pages: dict[int, str] = field(default_factory=dict)
     problems: list[str] = field(default_factory=list)
+    bad: set[int] = field(default_factory=set)     # صفحات فشلت (مفقودة/فارغة/قصيرة/مكررة)
 
 
 def split_and_check(text: str, images: list[PageImage]) -> CheckResult:
@@ -79,11 +89,16 @@ def split_and_check(text: str, images: list[PageImage]) -> CheckResult:
     expected = [img.page_number for img in images]
     ink = {img.page_number: img.ink for img in images}
     found = [(int(mm.group(1)), mm.start(), mm.end()) for mm in MARKER_RE.finditer(text or "")]
+    if not found and len(images) == 1 and (text or "").strip():
+        # صفحة واحدة والنموذج كتب النص بلا علامة: النص كله لهذه الصفحة (العلامة شكلية هنا، لا لبس في نسبته)
+        text = f"<!-- page:{images[0].page_number} -->\n{text.strip()}"
+        found = [(images[0].page_number, 0, text.index("\n"))]
     res = CheckResult(ok=True)
     nums = [n for n, _, _ in found]
     if nums != expected:
         missing = [p for p in expected if p not in nums]
         extra = [p for p in nums if p not in expected]
+        res.bad.update(missing)
         if missing:
             res.problems.append(f"علامات مفقودة: {missing}")
         if extra:
@@ -101,12 +116,19 @@ def split_and_check(text: str, images: list[PageImage]) -> CheckResult:
         is_blank = body.strip() == "<!-- blank -->"
         if p in res.pages and (is_blank or not body) and (ink.get(p) or 0) >= 0.006:
             res.ok = False
+            res.bad.add(p)
             res.problems.append(f"صفحة {p} فارغة في الناتج")
         elif p in res.pages and not is_blank and suspiciously_short(body, ink.get(p)):
             res.ok = False
+            res.bad.add(p)
             res.problems.append(f"صفحة {p} قصيرة بشكل مريب")
+        elif p in res.pages and looks_like_refusal(body.replace("<!-- blank -->", "")):
+            res.ok = False
+            res.bad.add(p)
+            res.problems.append(f"صفحة {p}: النموذج اعتذر عن القراءة")
         elif p in res.pages and (rep := repetition_problem(body)):
             res.ok = False
+            res.bad.add(p)
             res.problems.append(f"صفحة {p}: {rep}")
     return res
 
@@ -117,6 +139,7 @@ class PageOutcome:
     markdown: str | None            # None ⇒ تُعلَّق للمراجعة
     batch_size: int
     problems: list[str] = field(default_factory=list)
+    partial: str = ""               # أفضل نص وصل لهذه الصفحة رغم فشل الفحص (قصير/ناقص): يُقبل بدل التعليق
 
 
 Send = Callable[[str, OcrRequest], str]
@@ -132,7 +155,9 @@ def run_with_split(send: Send, images: list[PageImage], previous_tail: str = "",
     if chk.ok:
         return [PageOutcome(p, chk.pages[p], len(images)) for p in pages]
     if len(images) == 1:
-        return [PageOutcome(pages[0], None, 1, chk.problems)]
+        return [PageOutcome(pages[0], None, 1, chk.problems, chk.pages.get(pages[0], ""))]
+    if len(images) > BIG_BATCH:
+        return _retry_bad(send, images, chk, previous_tail, on_retry, extra_rules)
     if on_retry:
         on_retry(pages, chk.problems)
     out: list[PageOutcome] = []
@@ -141,9 +166,30 @@ def run_with_split(send: Send, images: list[PageImage], previous_tail: str = "",
         r = send(build_prompt([img.page_number], tail) + extra_rules, OcrRequest([img], tail))
         c = split_and_check(r, [img])
         md = c.pages.get(img.page_number) if c.ok else None
-        out.append(PageOutcome(img.page_number, md, 1, c.problems))
+        out.append(PageOutcome(img.page_number, md, 1, c.problems, c.pages.get(img.page_number, "")))
         tail = tail_lines(md or "", 8)
     return out
+
+
+BIG_BATCH = 5   # فوقه لا تُعاد الدفعة صفحةً صفحة (يستهلك عشرات الطلبات): تُحفظ السليمة ويُعاد الناقص فقط
+
+
+def _retry_bad(send: Send, images: list[PageImage], chk: CheckResult, previous_tail: str,
+               on_retry, extra_rules: str) -> list[PageOutcome]:
+    pages = [img.page_number for img in images]
+    bad = {p for p in pages if p in chk.bad or p not in chk.pages}
+    if not bad:            # علامات بغير الترتيب فقط: المحتوى مربوط برقم الصفحة فيُقبل
+        return [PageOutcome(p, chk.pages[p], len(images)) for p in pages]
+    if on_retry:
+        on_retry(sorted(bad), chk.problems)
+    good = {p: PageOutcome(p, chk.pages[p], len(images)) for p in pages if p not in bad}
+    redo = [img for img in images if img.page_number in bad]
+    # دفعات صغيرة: الفشل غالباً من طول الرد (الصفحات الأخيرة تُقصَّر أو تُحذف)، فالإعادة في دفعة كبيرة تفشل مثله
+    groups = [redo[i:i + BIG_BATCH] for i in range(0, len(redo), BIG_BATCH)]
+    for g in groups:
+        for o in run_with_split(send, g, previous_tail if g[0] is images[0] else "", on_retry, extra_rules):
+            good[o.page] = o
+    return [good[p] for p in pages]
 
 
 def tail_lines(markdown: str, n: int) -> str:

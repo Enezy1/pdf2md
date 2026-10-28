@@ -69,20 +69,29 @@ class OpenAICompatProvider(ExternalProvider):
         self.max_pages_per_call = max_pages_per_call
         self._key = api_key
         self._client = httpx.Client(timeout=TIMEOUT, transport=transport, trust_env=True)
+        self._no_temperature = False
+
+    def _post(self, body: dict) -> httpx.Response:
+        try:
+            return self._client.post(f"{self.base_url}/chat/completions", json=body,
+                                     headers={"Authorization": f"Bearer {self._key}"})
+        except httpx.HTTPError as e:
+            raise ProviderError(f"خطأ اتصال: {type(e).__name__}") from None
 
     def _complete(self, prompt: str, images: list[PageImage]) -> str:
         content: list[dict] = [{"type": "text", "text": prompt}]
         for img in images:
             content.append({"type": "text", "text": f"[image for page {img.page_number}]"})
             content.append(image_part(img))
-        body = {"model": self.model, "temperature": 0, "messages": [{"role": "user", "content": content}]}
-        try:
-            r = self._client.post(
-                f"{self.base_url}/chat/completions", json=body,
-                headers={"Authorization": f"Bearer {self._key}"},
-            )
-        except httpx.HTTPError as e:
-            raise ProviderError(f"خطأ اتصال: {type(e).__name__}") from None
+        body = {"model": self.model, "messages": [{"role": "user", "content": content}]}
+        if not self._no_temperature:
+            body["temperature"] = 0
+        r = self._post(body)
+        if r.status_code == 400 and "temperature" in body:   # GPT-5 وMiniMax وغيرها ترفض 0؛ نعيد بالقيمة الافتراضية
+            # نماذج OpenAI الاستدلالية (GPT-5 وما بعده) ترفض temperature=0: يُعاد الطلب بالقيمة الافتراضية
+            self._no_temperature = True
+            del body["temperature"]
+            r = self._post(body)
         if r.status_code != 200:
             raise classify_http_error(r.status_code, r.headers.get("retry-after"), r.text)
         try:

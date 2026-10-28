@@ -1,4 +1,72 @@
+# ==========================================================
+#  pdf2md — ملفات اللي ما تنرفع على GitHub
+# ==========================================================
+
+# ---------- بايثون ----------
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ---------- البيئات الافتراضية ----------
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# ---------- ملفات البناء (PyInstaller) ----------
 build/
 dist/
+*.exe
+*.msi
+*.pkg
+*.rar
+*.zip
+*.7z
+
+# ---------- 🔴 أسرار وإعدادات محلية ----------
+# الإعدادات والمفاتيح تنحفظ في %APPDATA%\pdf2md — بس احتياطاً:
+.env
+.env.*
+*.env
+settings.json
+config.json
+secrets.json
+credentials.json
+*.pem
+*.key
+id_rsa
+id_ed25519
+
+# ---------- سجلات ومخرجات محلية ----------
+*.log
+sent_log.csv
+*.tmp
+*.bak
+*.swp
+out/
+output/
+
+# ---------- ملفات PDF مخرَجة من تشغيل البرنامج على ملفات المشروع ----------
+# (لا تمسّ ملفات samples/ لأنها مرفقة كعيّنات)
+!samples/*.pdf
+
+# ---------- نظام التشغيل ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- المحررات ----------
+.vscode/
+.idea/
+*.iml

@@ -143,3 +143,20 @@ def pending_count(output_dir: Path) -> int:
     except (json.JSONDecodeError, OSError):
         return 0
     return sum(len(f.get("entries", [])) for f in db.values() if isinstance(f, dict))
+
+
+
+def pending_by_hash(output_dir: Path, hashes) -> dict[str, int]:
+    """عدد الصفحات المعلّقة فعلاً لكل ملف (من حالة الصفحات نفسها لا من التقرير القديم)."""
+    out: dict[str, int] = {}
+    for h in hashes:
+        if not h:
+            continue
+        try:
+            data = read_json(Path(output_dir) / ".state" / f"{h}.json", default={}) or {}
+        except (json.JSONDecodeError, OSError):
+            continue
+        n = sum(1 for p in (data.get("pages") or {}).values() if p.get("status") == "needs_review")
+        if n:
+            out[h] = n
+    return out

@@ -45,6 +45,13 @@ class ProviderSpec:
     retired: bool = False
     sources: list = field(default_factory=list)
     fallback_models: list = field(default_factory=list)
+    # نماذج تعمل بالتوازي (عامل مستقل وحد دقيقة مستقل لكل منها)؛ fallback_models تصير احتياطاً بعد انتهاء حصتها
+    parallel_models: list = field(default_factory=list)
+    parallel_rpm: int = 0
+    parallel_rpd: int = 0         # حد الطلبات اليومي لكل نموذج متوازٍ (يُطبَّق ويُعرض في التفاصيل)
+    fallback_rpd: int = 0         # حد اليوم التقريبي لكل نموذج احتياطي (للعرض فقط)
+    # مستند كامل في طلب واحد حتى هذا العدد؛ فوقه يُقسم بالتساوي (41–80 ⇒ طلبان). 0 = دفعات max_pages_per_call
+    whole_doc_pages: int = 0
     custom: bool = False
 
     @property

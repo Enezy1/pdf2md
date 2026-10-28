@@ -23,6 +23,7 @@ class PageImage:
 class OcrRequest:
     images: list[PageImage]          # صفحة أو صفحتان
     previous_tail: str = ""          # آخر أسطر الصفحة السابقة (لإكمال الجداول)
+    attempt: int = 0                 # 0 = أول محاولة؛ >0 = إعادة بعد حلقة تكرار (عقوبة تكرار أقوى + حرارة)
 
 
 @dataclass

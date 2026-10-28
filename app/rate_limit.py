@@ -142,9 +142,10 @@ class RateLimiter:
             self.usage.add_month(self.pid)
 
     def call(self, fn: Callable[[], str], log: Callable[[str], None] = lambda s: None,
-             on_switch: Callable[[str], bool] | None = None) -> str:
-        """on_switch(kind): ينقل لنموذج آخر أقل ازدحاماً؛ True = أعد فوراً بلا انتظار."""
-        """ينفّذ طلباً واحداً مع ضبط المعدل والانتظار التصاعدي. يرفع QuotaExhausted أو GiveUp."""
+             on_switch: Callable[[str], bool] | None = None, max_429: int = MAX_429) -> str:
+        """on_switch(kind): ينقل لنموذج آخر أقل ازدحاماً؛ True = أعد فوراً بلا انتظار.
+        max_429: عدد أخطاء 429 المتتالية قبل الاستسلام (أقل ⇒ يتسلّم مزوّد آخر أسرع).
+        ينفّذ طلباً واحداً مع ضبط المعدل والانتظار التصاعدي. يرفع QuotaExhausted أو GiveUp."""
         n429 = errors = busy = 0
         while True:
             if self.stop.is_set():
@@ -161,7 +162,7 @@ class RateLimiter:
                 if on_switch and on_switch("limited"):
                     continue
                 n429 += 1
-                if n429 >= MAX_429:
+                if n429 >= max_429:
                     raise GiveUp(f"{self.pid}: 429 متكرر") from None
                 delay = min(MAX_BACKOFF, 2.0 ** n429)
                 if e.retry_after is not None:

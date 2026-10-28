@@ -139,6 +139,7 @@ def process_file(job: Job, ctx: BatchContext, index: int) -> dict:
         state.data["only_pages"] = wanted if job.pages else None
         state.data["chat"] = job.chat
         ctx.emit("file_start", index=index, name=job.name, pages=len(wanted))
+        since_snapshot = 0
         try:
             for n in wanted:
                 while ctx.pause_event.is_set() and not ctx.stop_event.is_set():
@@ -148,6 +149,10 @@ def process_file(job: Job, ctx: BatchContext, index: int) -> dict:
                 _recheck_ocr_output(state, n, job)
                 if _needs_reclassify(state, n, job, ctx) or _needs_work(state.status(n), ctx.provider, job, ctx):
                     _process_page(doc, n, state, ctx, job)
+                    since_snapshot += 1
+                    if since_snapshot >= SNAPSHOT_EVERY:
+                        since_snapshot = 0
+                        _snapshot_markdown(state, ctx, job)
                 ctx.emit("page", index=index, page=n, pages=n_pages, status=state.status(n))
         finally:
             # حتى عند الإيقاف: اكتب ملف Markdown جزئياً بما اكتمل.
@@ -159,6 +164,23 @@ def process_file(job: Job, ctx: BatchContext, index: int) -> dict:
         return {"counts": counts, "pages": n_pages, "converted": converted, "weak_pages": weak, **final}
     finally:
         doc.close()
+
+
+SNAPSHOT_EVERY = 10   # صفحات بين كل لقطة Markdown جزئية (الأجزاء نفسها تُحفظ بعد كل صفحة)
+
+
+def _snapshot_markdown(state: cp.FileState, ctx: BatchContext, job: Job) -> None:
+    """يكتب ما اكتمل حتى الآن في ملف الـ Markdown، فلا يبقى بلا ناتج لو انقطع البرنامج أو الكهرباء وسط ملف كبير."""
+    try:
+        if ctx.settings.split_parts:   # أجزاء مكتملة بدل ملف واحد يكبر؛ الملف الكامل يُبنى في النهاية
+            from .markdown_out import write_ready_parts
+            write_ready_parts(state, state.data["source_name"], ctx.md_dir_for(job.path), ctx.settings.split_parts_pages,
+                              ctx.settings.normalize_digits, ctx.settings.strip_page_furniture)
+        else:
+            write_markdown(state, state.data["source_name"], ctx.md_dir_for(job.path), ctx.settings.normalize_digits,
+                           ctx.settings.strip_page_furniture)
+    except Exception:
+        log.exception("تعذّرت اللقطة الجزئية للملف %s", job.name)
 
 
 def _process_page(doc: fitz.Document, n: int, state: cp.FileState, ctx: BatchContext, job: Job) -> None:
@@ -206,13 +228,15 @@ def _photos_meta(page: fitz.Page, prev: dict | None) -> list[dict]:
     return [old.get(tuple(b)) or {"bbox": list(b)} for b in find_photos(page)]
 
 
-def _run_ocr(page: fitz.Page, n: int, ctx: BatchContext):
+def _run_ocr(page: fitz.Page, n: int, ctx: BatchContext, attempt: int = 0):
     provider = ctx.provider
     if provider.is_external:
         # المزوّد الخارجي يمر فقط عبر cloud_gate (المرحلة 3). لا مسار مباشر.
         raise PermissionError("المزوّد الخارجي غير مسموح خارج بوابة الإرسال")
     dpi = ctx.settings.render_dpi
-    req = OcrRequest(images=[PageImage(n, render_page_png(page, dpi), dpi)])
+    if attempt:
+        dpi = max(120, int(dpi * (1.0 - 0.2 * attempt)))   # دقة مختلفة تغيّر مدخل النموذج وتكسر الحلقة
+    req = OcrRequest(images=[PageImage(n, render_page_png(page, dpi), dpi)], attempt=attempt)
     return next(r for r in provider.ocr(req) if r.page_number == n)
 
 
@@ -254,6 +278,12 @@ def _reject_unreliable(state, n, text, problem, meta, engine, job: Job) -> None:
 def _ocr_page(page: fitz.Page, n: int, state: cp.FileState, ctx: BatchContext, meta: dict, job: Job) -> None:
     result = _run_ocr(page, n, ctx)
     problem = repetition_problem(result.markdown)
+    for attempt in (1, 2):
+        if not problem:
+            break
+        ctx.emit("log", text=f"⚠ الصفحة {n}: حلقة تكرار ({problem}) — إعادة المحاولة {attempt}/2")
+        result = _run_ocr(page, n, ctx, attempt)
+        problem = repetition_problem(result.markdown)
     if problem:
         ctx.emit("log", text=f"⚠ الصفحة {n}: ناتج المحرّك غير موثوق ({problem}) — لن يُكتب نصها")
         _reject_unreliable(state, n, result.markdown, problem, {**meta, **result.meta}, ctx.provider.name, job)
@@ -389,13 +419,25 @@ def finalize_file(state: cp.FileState, doc: fitz.Document, ctx: BatchContext, ap
         log.exception("تعذّر حساب درجات الصفحات للملف %s", name)
     out = write_markdown(state, name, ctx.md_dir_for(src), ctx.settings.normalize_digits,
                          ctx.settings.strip_page_furniture)
+    if ctx.settings.split_parts and all(state.status(n) in cp.FINAL_STATUSES
+                                        for n in (state.data.get("only_pages") or range(1, state.page_count + 1))):
+        from .markdown_out import remove_parts
+        remove_parts(ctx.md_dir_for(src), name)   # اكتمل الملف ودُمج في الملف النهائي: الأجزاء لم تعد لازمة
+    docx_path = ""
+    if ctx.settings.export_docx:
+        try:
+            from .docx_out import export_markdown_file
+            docx_path = str(export_markdown_file(out))
+        except Exception:
+            log.exception("تعذّر إنشاء ملف Word للملف %s", name)
+            ctx.emit("log", text=f"✗ تعذّر إنشاء ملف Word لـ {name}")
     _merged, tstats = merged_fragments(state)
     try:
         entries = review_report.update_file(ctx.output_dir, state, name, doc, tstats.mismatch_pages)
     except Exception:
         log.exception("تعذّر تحديث تقرير المراجعة للملف %s", name)
         entries = []
-    return {"markdown": str(out), "tables": tstats.to_dict(), "weak_count": len(weak_pages(state)),
+    return {"markdown": str(out), "docx": docx_path, "tables": tstats.to_dict(), "weak_count": len(weak_pages(state)),
             "review_count": len(entries), "local_warnings": local_warnings(state)}
 
 
@@ -521,11 +563,11 @@ def _photos_pending(state: cp.FileState) -> bool:
                for ph in (state.page(n) or {}).get("photos") or [])
 
 
-def review_items(jobs: list[Job], ctx: BatchContext) -> list[dict]:
+def review_items(jobs: list[Job], ctx: BatchContext, require_api: bool = True) -> list[dict]:
     """الصفحات المعلّقة للمراجعة (وضع "عبر المواقع")."""
     items = []
     for i, job in enumerate(jobs):
-        if not job.api_ok:
+        if require_api and not job.api_ok:
             continue
         try:
             state = _state_for(job.path, job.file_hash, ctx)
@@ -534,13 +576,17 @@ def review_items(jobs: list[Job], ctx: BatchContext) -> list[dict]:
         for n in range(1, state.page_count + 1):
             p = state.page(n) or {}
             if p.get("status") == cp.NEEDS_REVIEW:
+                try:
+                    seen = state.local_path(n).read_text(encoding="utf-8")
+                except OSError:
+                    seen = ""
                 items.append({"index": i, "path": str(job.path), "hash": job.file_hash, "page": n,
-                              "reason": p.get("review_reason", "")})
+                              "reason": p.get("review_reason", ""), "text": seen})
     return items
 
 
 def apply_review_decisions(decisions: list[dict], ctx: BatchContext) -> set[int]:
-    """قرارات نافذة المراجعة: "leave" ⇒ [غير مقروء] نهائياً، "send" ⇒ تُرسل مع قصاصة اختيارية.
+    """قرارات نافذة المراجعة: "leave" ⇒ [غير مقروء] نهائياً، "accept" ⇒ يُعتمد النص المعدَّل يدوياً، "send" ⇒ تُرسل مع قصاصة اختيارية.
     يعيد أرقام (index) الملفات التي فيها صفحات للإرسال."""
     to_send: set[int] = set()
     by_file: dict[str, list[dict]] = {}
@@ -554,8 +600,45 @@ def apply_review_decisions(decisions: list[dict], ctx: BatchContext) -> set[int]
                 continue
             if d["action"] == "leave":
                 state.save_page(n, cp.ILLEGIBLE, "none", **state.carry_meta(n), review_reason=d.get("reason", ""))
+            elif d["action"] == "accept" and (d.get("text") or "").strip():
+                state.save_page(n, cp.DONE, "manual", d["text"].strip(), **state.carry_meta(n))
             elif d["action"] == "send":
                 state.update_meta(n, review_action="send", clip=list(d["clip"]) if d.get("clip") else None)
                 to_send.add(d["index"])
         _finalize_path(Path(path), ds[0]["hash"], ctx, False)
     return to_send
+
+
+def read_page_now(api, path: str, page: int, settings, slot_id: str = "") -> str:
+    """قراءة صفحة واحدة بنموذج الرؤية عند الطلب (زر «اقرأها الآن» في نافذة المراجعة).
+    api: ApiRunner. يرفع استثناءً برسالة مفهومة إن تعذّر."""
+    from .providers.base import OcrRequest
+    from .providers.batching import build_prompt, split_and_check
+    from .providers.render import render_page_jpeg
+    from .quality import looks_like_refusal
+    if slot_id:   # اختيار المستخدم لمزوّد بعينه (نموذج رؤية أو محرّك OCR مثل Google Vision)
+        slot = next((sl for sl in api.slots if sl.id == slot_id), None)
+        if slot is None:
+            raise RuntimeError("المزوّد المختار غير مفعّل أو بلا مفتاح")
+    else:
+        slot = next(iter(api.llm_slots()), None)
+    if slot is None:
+        raise RuntimeError("لا يوجد نموذج رؤية متاح (راجع المزوّدات في الإعدادات)")
+    try:
+        ticket = api.gate.open_file(Path(path))
+        with fitz.open(path) as doc:
+            img = render_page_jpeg(doc[page - 1], page, settings.api_dpi, settings.api_max_dim, settings.api_jpeg_quality)
+        text = slot.limiter.call(lambda: api.gate.send(ticket, slot.provider, build_prompt([page]), OcrRequest([img]),
+                                                       slot.provider.model))
+        if slot.is_ocr:   # محرّك OCR يعيد النص بلا علامات صفحات ولا تعليمات
+            body = text.strip()
+            if not body:
+                raise RuntimeError(f"{slot.spec.name} لم يُخرج نصاً لهذه الصفحة")
+            return body
+        chk = split_and_check(text, [img])
+        body = chk.pages.get(page, "").strip()
+        if not body or body == "<!-- blank -->" or looks_like_refusal(body):
+            raise RuntimeError("النموذج لم يُرجع نصاً لهذه الصفحة" + (f" ({'؛ '.join(chk.problems)})" if chk.problems else ""))
+        return body
+    except Exception:
+        raise

@@ -7,10 +7,10 @@
       "id": "gemini",
       "name": "Google Gemini",
       "kind": "gemini",
-      "description": "نماذج Google عبر Google AI Studio، تقرأ الصور والنصوص.",
+      "description": "الأقوى عندنا في العربية (جُرّب على محضر وجدول ومذكرات): يقرأ الجداول والصفحات المدوّرة، ويصحّح النص بدقة. يزدحم أحياناً فيُعاد الطلب. الخطة المجانية قد تُستخدم لتحسين منتجات Google.",
       "base_url": "https://generativelanguage.googleapis.com",
       "key_url": "https://aistudio.google.com/apikey",
-      "default_model": "gemini-3.5-flash",
+      "default_model": "gemini-3.5-flash-lite",
       "accepts_images": true,
       "max_pages_per_call": 5,
       "free_tier": {
@@ -38,16 +38,25 @@
         "https://ai.google.dev/gemini-api/docs/api-key",
         "https://ai.google.dev/gemini-api/docs/rate-limits"
       ],
-      "fallback_models": [
+      "parallel_models": [
         "gemini-3.5-flash-lite",
-        "gemini-2.5-flash"
+        "gemini-3.1-flash-lite"
+      ],
+      "parallel_rpm": 15,
+      "parallel_rpd": 500,
+      "fallback_rpd": 20,
+      "whole_doc_pages": 40,
+      "fallback_models": [
+        "gemini-2.5-flash",
+        "gemini-3.6-flash",
+        "gemini-3.8-flash"
       ]
     },
     {
       "id": "openai",
       "name": "OpenAI (ChatGPT)",
       "kind": "openai",
-      "description": "واجهة OpenAI الرسمية (نماذج GPT التي يقوم عليها ChatGPT). مدفوعة حسب الاستخدام؛ اشتراك ChatGPT لا يشمل الـ API.",
+      "description": "نماذج GPT: قوية عادةً في العربية ويفهم الصور، لكن لم تُجرَّب هنا. مدفوعة حسب الاستخدام، واشتراك ChatGPT لا يشمل الـ API.",
       "base_url": "https://api.openai.com/v1",
       "key_url": "https://platform.openai.com/api-keys",
       "default_model": "gpt-6-luna",
@@ -80,7 +89,7 @@
       "id": "groq",
       "name": "Groq",
       "kind": "openai",
-      "description": "خدمة استدلال سريعة جداً لنماذج مفتوحة، بصيغة OpenAI.",
+      "description": "سريع جداً لكن بنماذج مفتوحة (Qwen): متوسط المتوقع في العربية، ولم يُجرَّب هنا. يصلح للتصحيح النصي أكثر من قراءة الصور.",
       "base_url": "https://api.groq.com/openai/v1",
       "key_url": "https://console.groq.com/keys",
       "default_model": "qwen/qwen3.8-27b",
@@ -115,7 +124,7 @@
       "id": "mistral",
       "name": "Mistral",
       "kind": "openai",
-      "description": "شركة فرنسية لنماذج اللغة، خطتها المجانية Experiment تحتاج تحققاً بالهاتف.",
+      "description": "شركة فرنسية: قوي في الفرنسية والإنجليزية، والعربية عنده متوسطة المتوقع، ولم يُجرَّب هنا. الخطة المجانية تحتاج تحققاً بالهاتف.",
       "base_url": "https://api.mistral.ai/v1",
       "key_url": "https://console.mistral.ai/api-keys",
       "default_model": "mistral-small-2506",
@@ -151,7 +160,7 @@
       "id": "cloudflare",
       "name": "Cloudflare Workers AI",
       "kind": "openai",
-      "description": "نماذج تعمل على شبكة Cloudflare، حصتها اليومية بوحدة \"النيورون\" لا بعدد الطلبات.",
+      "description": "نماذج مفتوحة (Llama) على شبكة Cloudflare: العربية متوسطة المتوقع، ولم يُجرَّب هنا. الحصة اليومية بوحدة \"النيورون\" لا بعدد الطلبات.",
       "base_url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
       "key_url": "https://dash.cloudflare.com/profile/api-tokens",
       "default_model": "@cf/meta/llama-4-scout-17b-16e-instruct",
@@ -193,7 +202,7 @@
       "id": "nvidia",
       "name": "NVIDIA NIM",
       "kind": "openai",
-      "description": "منصة NVIDIA (build.nvidia.com) لتجربة مئات النماذج المفتوحة مجاناً ضمن برنامج المطوّرين.",
+      "description": "منصة NVIDIA لتجربة نماذج مفتوحة كبيرة (مثل Llama 90B للصور) مجاناً: جودتها تتفاوت حسب النموذج، ولم تُجرَّب هنا.",
       "base_url": "https://integrate.api.nvidia.com/v1",
       "key_url": "https://build.nvidia.com/settings/api-keys",
       "default_model": "meta/llama-3.2-90b-vision-instruct",
@@ -227,10 +236,44 @@
       "fallback_models": []
     },
     {
+      "id": "minimax",
+      "name": "MiniMax",
+      "kind": "openai",
+      "description": "نموذج MiniMax-M3 يقبل الصور (حسب توثيق المزوّد) عبر واجهة متوافقة مع OpenAI. لم يُجرَّب هنا بمفتاح حقيقي. مفتاح الصين (platform.minimaxi.com) يلزمه مزوّد مخصص برابط https://api.minimaxi.com/v1.",
+      "base_url": "https://api.minimax.io/v1",
+      "key_url": "https://platform.minimax.io/",
+      "default_model": "MiniMax-M3",
+      "accepts_images": true,
+      "max_pages_per_call": 1,
+      "free_tier": {
+        "available": false,
+        "card_required": true,
+        "phone_verification": false,
+        "limits": "حسب رصيد الحساب (مدفوع حسب الاستخدام)"
+      },
+      "data_training": "غير معروف — راجع شروط MiniMax.",
+      "quota_unit": "requests",
+      "extra_fields": [],
+      "verified_on": "2026-10-25",
+      "unverified": [
+        "limits",
+        "data_training",
+        "accepts_images",
+        "default_model",
+        "max_pages_per_call"
+      ],
+      "retired": false,
+      "sources": [
+        "https://platform.minimax.io/",
+        "https://visionagents.ai/integrations/llm/minimax"
+      ],
+      "fallback_models": []
+    },
+    {
       "id": "openrouter",
       "name": "OpenRouter",
       "kind": "openai",
-      "description": "بوابة واحدة لنماذج كثيرة من مزوّدين مختلفين؛ النماذج المنتهية بـ :free مجانية بحدود يومية.",
+      "description": "بوابة واحدة لنماذج كثيرة من مزوّدين مختلفين. الجودة حسب النموذج المختار (المجانية :free محدودة بحد يومي)، ولم تُجرَّب هنا.",
       "base_url": "https://openrouter.ai/api/v1",
       "key_url": "https://openrouter.ai/settings/keys",
       "default_model": "google/gemma-4-31b-it:free",
@@ -265,7 +308,7 @@
       "id": "ocrspace",
       "name": "OCR.space",
       "kind": "ocr",
-      "description": "يقرأ الصفحات المصوّرة بالعربية، ثم يصحّح النصَّ نموذجٌ آخر مفعّل.",
+      "description": "قارئ نصوص عادي وليس ذكاءً اصطناعياً: سريع (3–5 ثوانٍ) لكنه متوسط في العربية، يبعثر الجداول ولا يكشف دوران الصفحة دائماً. لذلك يصحّحه نموذج ذكاء اصطناعي بعده.",
       "base_url": "https://api.ocr.space/parse/image",
       "key_url": "https://ocr.space/ocrapi/freekey",
       "default_model": "engine3",
@@ -294,6 +337,75 @@
       "sources": [
         "https://ocr.space/OCRAPI",
         "https://forum.ocr.space/t/free-api-fail-with-arabic-langage/13889"
+      ],
+      "fallback_models": []
+    },
+    {
+      "id": "qari",
+      "name": "Qari-OCR (ذكاء اصطناعي)",
+      "kind": "ocr",
+      "description": "ذكاء اصطناعي مخصّص للعربية (Qari) على خوادم qari.g4t.io: لم يُجرَّب عبر الـ API بعد (النسخة المحلية منه جُرّبت: جيدة بالنص، ضعيفة بالجداول). يقرأ الصورة ثم يصحّح النصَّ نموذجٌ آخر مفعّل. الصفحات تُرسل لخادم طرف ثالث.",
+      "base_url": "https://qari.g4t.io/api/v1/ocr",
+      "key_url": "https://qari.g4t.io/",
+      "default_model": "qari-api",
+      "accepts_images": true,
+      "max_pages_per_call": 1,
+      "free_tier": {
+        "available": true,
+        "card_required": false,
+        "phone_verification": false,
+        "limits": "100 طلب يومياً، صورة حتى 10MB (PNG/JPG/WEBP/TIFF)، بلا PDF",
+        "rpm": null,
+        "rpd": 100
+      },
+      "data_training": "غير مذكور في صفحة الموقع — راجع سياسة الخصوصية لدى qari.g4t.io. الصفحات تُرسل إلى خادم طرف ثالث.",
+      "quota_unit": "requests",
+      "extra_fields": [],
+      "verified_on": "2026-10-14",
+      "unverified": [
+        "data_training",
+        "rpm",
+        "error_codes"
+      ],
+      "retired": false,
+      "sources": [
+        "https://qari.g4t.io/#features"
+      ],
+      "fallback_models": []
+    },
+    {
+      "id": "google_vision",
+      "name": "Google Cloud Vision (OCR)",
+      "kind": "ocr",
+      "description": "OCR من Google (DOCUMENT_TEXT_DETECTION) قوي في العربية والجداول الممسوحة. يقرأ الصورة ثم يصحّح النصَّ نموذجٌ آخر مفعّل. يتطلب مشروع Google Cloud مع تفعيل Vision API والفوترة. لم يُجرَّب بمفتاح حقيقي بعد.",
+      "base_url": "https://vision.googleapis.com/v1/images:annotate",
+      "key_url": "https://console.cloud.google.com/apis/credentials",
+      "default_model": "document-text-detection",
+      "accepts_images": true,
+      "max_pages_per_call": 1,
+      "free_tier": {
+        "available": true,
+        "card_required": true,
+        "phone_verification": false,
+        "limits": "أول 1000 صفحة شهرياً مجاناً ثم مدفوعة (~1.5$ لكل 1000)، تتطلب تفعيل الفوترة",
+        "rpm": 1800,
+        "rpd": null,
+        "rpmonth": 1000
+      },
+      "data_training": "حسب شروط Google Cloud لا تُستخدم الصور لتدريب النماذج (من معرفتي، تحقق من الشروط).",
+      "quota_unit": "requests",
+      "extra_fields": [],
+      "verified_on": "2026-10-18",
+      "unverified": [
+        "data_training",
+        "rpm",
+        "free_tier",
+        "error_codes"
+      ],
+      "retired": false,
+      "sources": [
+        "https://cloud.google.com/vision/docs/ocr",
+        "https://cloud.google.com/vision/pricing"
       ],
       "fallback_models": []
     }

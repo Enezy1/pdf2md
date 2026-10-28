@@ -45,6 +45,9 @@ STATUS_LABELS = {
 }
 
 
+INPUT_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}  # الصور تُفتح كمستند من صفحة (أو أكثر لـ TIFF)
+
+
 @dataclass
 class FileEntry:
     path: Path
@@ -279,7 +282,7 @@ class MainWindow:
                                    background=t["bg"], borderwidth=0)
         self.done_label.pack(side="right", padx=(0, px(S3)))
         # الخطوة التالية الأهم: مراجعة الصفحات الضعيفة (زر رئيسي)، ثم المجلد والفهرس (ثانويان)
-        self.review_btn = ui.Btn(done, "", lambda: self._open_output_file("needs_human_review.md"), kind="primary")
+        self.review_btn = ui.Btn(done, "", self._review_clicked, kind="primary")
         self.folder_btn = ui.Btn(done, "فتح المجلد", self._open_output)
         self.index_btn = ui.Btn(done, "فتح الفهرس", lambda: self._open_output_file("INDEX.md"))
         self.log_text = theme.text_widget(body, height=8)
@@ -428,6 +431,21 @@ class MainWindow:
                 return
             if dismiss:
                 self.settings.cloud_notice_dismissed = True
+        if self.busy():
+            # أثناء الإيقاف المؤقت: تغيير النمط يوقف الدفعة ثم يعيد تشغيلها بالنمط الجديد؛
+            # الصفحات المنجزة محفوظة في نقطة الحفظ فيُكمل من حيث توقف
+            if mode == (self.settings.engine_mode or "local"):
+                self._switch_mode = None
+                return
+            self._switch_mode = mode
+            for b in self.mode_buttons.values():
+                b.configure(state="disabled")
+            self.pause_btn.configure(state="disabled")
+            self.pause_event.clear()
+            self.stop_event.set()
+            self.status_var.set(R("جارٍ التحويل إلى النمط الجديد بعد الصفحة الحالية…"))
+            self.log("⇄ تحويل النمط — يُستكمل بالنمط الجديد بعد انتهاء الصفحة الجارية")
+            return
         self._set_mode(mode)
         self._refresh_privacy()
 
@@ -580,10 +598,8 @@ class MainWindow:
         t = theme.tokens()
         self.done_label.configure(text=R("توقف" if stopped else "تم"), foreground=t["warn"] if stopped else t["ok"])
         out = self.output_dir()
-        n = 0
-        if out is not None:
-            from ..review_report import pending_count
-            n = pending_count(out)
+        n = self._pending_review_total()
+        self._refresh_review_counts()
         for b in (self.review_btn, self.folder_btn, self.index_btn):
             b.pack_forget()
         if n:
@@ -613,6 +629,35 @@ class MainWindow:
         self.table.set_row(key, e.path.stem, pages, status or "—", " • ".join(x for x in parts if x),
                            key in self.checked, tone)
 
+    def _pending_review_by_file(self) -> dict[str, int]:
+        """الصفحات المعلّقة فعلاً للملفات الموجودة في الجدول، من حالة الصفحات (لا من التقرير النصي القديم)."""
+        out = self.output_dir()
+        if out is None:
+            return {}
+        from ..review_report import pending_by_hash
+        return pending_by_hash(out, [e.file_hash for e in self.files.values() if e.file_hash])
+
+    def _pending_review_total(self) -> int:
+        return sum(self._pending_review_by_file().values())
+
+    def _refresh_review_counts(self) -> None:
+        """عمود الحالة «تم · N للمراجعة» يتبع الواقع بعد المراجعة (كان يبقى بالرقم القديم)."""
+        pending = self._pending_review_by_file()
+        for key, e in self.files.items():
+            if e.file_hash and e.status.startswith("تم"):
+                n = pending.get(e.file_hash, 0)
+                e.status = "تم" + (f" · {n} للمراجعة" if n else "")
+                self._row(key)
+
+    def _offer_pending_review(self, total: int) -> None:
+        """بعد إعادة تشغيل البرنامج: إن كانت في مجلد الإخراج صفحات معلّقة يظهر زر «راجع N صفحات»."""
+        try:
+            if total and not self.busy() and not self.done_frame.winfo_ismapped() and self.output_dir() is not None:
+                if self._pending_review_total():
+                    self._show_done(True)
+        except (AttributeError, tk.TclError, OSError):
+            pass  # الواجهة لم تكتمل بعد
+
     def _update_count(self) -> None:
         n, total = len(self.checked), len(self.files)
         self.count_lbl.configure(text=R(f"{n} من {total}") if total else "")
@@ -622,6 +667,7 @@ class MainWindow:
             self.count_lbl.pack_forget()
         self.all_var.set(bool(total) and n == total)
         self.all_chk.refresh()
+        self._offer_pending_review(total)
         if total:
             self.table.set_zone_text("أضف ملفات PDF أخرى إلى القائمة", "اضغط هنا لاختيار ملفات متعددة دفعة واحدة")
         else:
@@ -640,7 +686,9 @@ class MainWindow:
     def _add_file(self) -> None:
         if self.busy():
             return
-        paths = filedialog.askopenfilenames(title="إضافة ملف PDF", filetypes=[("PDF", "*.pdf")])
+        paths = filedialog.askopenfilenames(title="إضافة ملفات PDF أو صور",
+                                               filetypes=[("PDF وصور", "*.pdf *.png *.jpg *.jpeg *.tif *.tiff *.bmp *.webp"),
+                                                          ("PDF", "*.pdf"), ("صور", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp *.webp")])
         new = [Path(p) for p in paths if str(Path(p)) not in self.files]
         if not new:
             return
@@ -659,10 +707,10 @@ class MainWindow:
     def _list_pdfs(self, folder: Path) -> list[Path]:
         if self.settings.include_subfolders:
             out_dir = self.output_dir()
-            it = (p for p in folder.rglob("*.pdf") if not (out_dir and out_dir in p.parents)
-                  and OUTPUT_NAME not in p.parts)
+            it = (p for p in folder.rglob("*") if p.suffix.lower() in INPUT_EXTS
+                  and not (out_dir and out_dir in p.parents) and OUTPUT_NAME not in p.parts)
         else:
-            it = (p for p in folder.iterdir() if p.suffix.lower() == ".pdf")
+            it = (p for p in folder.iterdir() if p.suffix.lower() in INPUT_EXTS)
         return sorted((p for p in it if p.is_file()), key=lambda p: str(p.relative_to(folder)).lower())
 
     def _insert(self, p: Path, extra: bool = False) -> None:
@@ -717,7 +765,14 @@ class MainWindow:
             except Exception as e:
                 err = "تعذّر فتحه"
                 log.warning("تعذّر فتح %s: %s", p, e)
-            self.events.put(("scan", {"token": token, "key": str(p), "pages": pages, "hash": file_hash, "error": err}))
+            resume = None
+            if file_hash and not err:
+                from .. import checkpoint as cp
+                resume = cp.progress(self.output_dir() / ".state", file_hash)
+                if resume and resume[0] >= resume[1]:
+                    resume = None   # مكتمل: لا يحتاج استكمالاً
+            self.events.put(("scan", {"token": token, "key": str(p), "pages": pages, "hash": file_hash, "error": err,
+                                      "resume": resume}))
         self.hash_cache.save()
 
     def rescan(self) -> None:
@@ -783,6 +838,8 @@ class MainWindow:
             m.add_command(label=R("إلغاء: لقطات محادثات" if is_chat else "لقطات محادثات (تمييز المتحدثين)"),
                           command=lambda: (self.file_options.set_chat(e0.file_hash, e0.path.name, not is_chat),
                                            self._row(str(e0.path))))
+        if len(entries) == 1 and not self.busy():
+            m.add_command(label=R("تصدير إلى Word (.docx)"), command=lambda: self._export_word(entries[0]))
         if all(hashes) and not self.busy():
             m.add_command(label=R("إعادة المعالجة من الصفر"), command=lambda: self._reset_files(entries))
         if len(entries) == 1:
@@ -792,6 +849,23 @@ class MainWindow:
             m.add_command(label=R("إزالة من القائمة"), command=lambda: self._remove_extra(extras))
         if m.index("end") is not None:
             m.tk_popup(x_root, y_root)
+
+    def _export_word(self, e) -> None:
+        """يحوّل ملف الـ Markdown الناتج لهذا الـ PDF إلى Word (عربي ⇒ يمين لليسار)."""
+        from ..docx_out import export_markdown_file
+        folder = self.md_folder() if self.settings.output_dir else e.path.parent
+        md = Path(folder) / (e.path.stem + ".md") if folder else None
+        if not md or not md.is_file():
+            messagebox.showinfo("لا يوجد Markdown", "حوّل الملف أولاً (زر «ابدأ») ثم صدّره إلى Word.", parent=self.root)
+            return
+        try:
+            out = export_markdown_file(md)
+        except Exception as ex:
+            log.exception("تعذّر إنشاء ملف Word")
+            messagebox.showerror("تعذّر إنشاء ملف Word", theme.friendly_error(ex), parent=self.root)
+            return
+        self.log(f"✔ أُنشئ ملف Word: {out}")
+        os.startfile(out)  # noqa: S606
 
     def _reset_files(self, entries: list) -> None:
         """البرنامج يحفظ ما قرأه من كل صفحة ولا يعيد إرسالها؛ هذا يمسح ذلك ليُقرأ الملف من جديد."""
@@ -925,13 +999,18 @@ class MainWindow:
         if self.pause_event.is_set():
             self.pause_event.clear()
             self.pause_btn.configure(text=R("إيقاف مؤقت"))
+            for b in self.mode_buttons.values():
+                b.configure(state="disabled")
             self._set_head("جارٍ المعالجة", "busy")
             self.log("▶ استكمال")
         else:
             self.pause_event.set()
             self.pause_btn.configure(text=R("استكمال"))
             self._set_head("متوقف مؤقتاً — تكتمل الطلبات الجارية ثم ينتظر", "")
-            self.log("⏸ إيقاف مؤقت")
+            self.log("⏸ إيقاف مؤقت — يمكنك اختيار نمط آخر (داخلي/عبر المواقع) للاستكمال به")
+            for b in self.mode_buttons.values():
+                b.configure(state="normal")
+            self._refresh_mode()
         self._progress()
 
     def _set_running(self, running: bool) -> None:
@@ -947,6 +1026,7 @@ class MainWindow:
 
     def _start_or_stop(self) -> None:
         if self.busy():
+            self._switch_mode = None
             self.pause_event.clear()
             self.stop_event.set()
             self.cancel_btn.configure(state="disabled")
@@ -1047,8 +1127,11 @@ class MainWindow:
             ctx.emit("log", text=f"تشغيل المحرّك الداخلي ({spec.label})… قد يستغرق دقيقة.")
             try:
                 model_p, mmproj_p = mm.model_paths(spec)
+                exe, fallback = mm.engine_for(self.settings.use_gpu)
+                ctx.emit("log", text="التشغيل على كرت الشاشة (Vulkan)…" if fallback else "التشغيل على المعالج.")
                 self.active_provider = start_local_provider(
-                    mm.llama_exe(), model_p, mmproj_p, app_data_dir() / "logs", spec.id, stop=ctx.stop_event)
+                    exe, model_p, mmproj_p, app_data_dir() / "logs", spec.id, stop=ctx.stop_event,
+                    prompt=spec.prompt, gpu=bool(fallback), fallback_exe=fallback)
             except Exception as e:
                 log.exception("تعذّر تشغيل المحرّك")
                 ctx.emit("log", text="✗ تعذّر تشغيل المحرّك الداخلي. " + theme.friendly_error(e).replace("\n", " "))
@@ -1078,15 +1161,125 @@ class MainWindow:
                 ctx.paddle.close()
                 ctx.paddle = None
 
+    def _review_clicked(self) -> None:
+        """زر «راجع N صفحات»: نافذة المراجعة (معاينة + نص قابل للتعديل). بعد إعادة تشغيل البرنامج تُبنى المهام
+        من الملفات المضافة في الجدول؛ وإن لم توجد يُفتح التقرير."""
+        out = self.output_dir()
+        if out is None or self.busy():
+            return
+        if not self.running_jobs:
+            self.running_jobs = [
+                Job(e.path, e.file_hash, False, pages=self._pages_for(e), chat=self.file_options.chat(e.file_hash))
+                for e in self.files.values() if e.file_hash and not e.error]
+        if self.running_jobs:
+            from ..pipeline import review_items
+            self.stop_event = threading.Event()
+            items = review_items(self.running_jobs, self._ctx(out), require_api=False)
+            if items:
+                self.pending_review = items
+                self._open_review()
+                return
+        # لا ملفات محمّلة في الجدول: نافذة المراجعة تحتاج الملفات نفسها (التقرير يذكر الأسماء فقط)
+        nn = chr(10) * 2
+        if messagebox.askyesno("مراجعة الصفحات",
+                               "لا توجد ملفات في الجدول لفتح نافذة المراجعة." + nn +
+                               "أضف الملفات نفسها (اسحبها أو اختر المجلد) ثم اضغط «راجع» مرة أخرى لتظهر الصور وأزرار القراءة." + nn +
+                               "هل تريد فتح التقرير النصي (قائمة بالصفحات المعلّقة فقط، للاطلاع)؟", parent=self.root):
+            self._open_output_file("needs_human_review.md")
+
+    def review_engines(self) -> list[tuple[str, str]]:
+        """طرق القراءة المتاحة في نافذة المراجعة: (مفتاح، تسمية)."""
+        out = [("auto", "تلقائي (Gemini أولاً)")]
+        for spec, st, key in self.provider_config.active(self.secrets):
+            if spec.id != "gemini":
+                out.append((f"slot:{spec.id}", f"{spec.name}" + (" (OCR)" if spec.is_ocr else "")))
+        spec = self.selected_spec()
+        if spec is not None and mm.is_installed(spec):
+            out.append(("local-ai", f"ذكاء محلي: {spec.label}"))
+        from .. import paddle_engine as pe
+        if pe.is_available():
+            out.append(("paddle", "OCR محلي (PaddleOCR — للعربي)"))
+        return out
+
+    def _review_read(self, item: dict, engine: str = "auto") -> str:
+        """يُستدعى من خيط نافذة المراجعة: قراءة صفحة واحدة بالطريقة التي اختارها المستخدم."""
+        if engine == "local-ai":
+            return self._review_read_local(item)
+        if engine == "paddle":
+            return self._review_read_paddle(item)
+        from ..pipeline import read_page_now
+        # مشغّل جديد لكل قراءة: المحفوظ سابقاً كان يحمل حدث إيقاف قديماً ومزوّداً مغلقاً أو «منتهي الحصة»، فيفشل الزر بعد فترة
+        ctx = self._ctx(self.output_dir())
+        ctx.stop_event = threading.Event()
+        api = self._make_api_runner(ctx)
+        if api is None:
+            raise RuntimeError("لا يوجد مزوّد مفعّل بمفتاح (أو الوضع داخلي: فعّل «عبر المواقع»)")
+        for sl in api.slots:   # القراءة اليدوية لصفحة واحدة: يُسمح بالنماذج القوية الاحتياطية إن حُجبت الخفيفة
+            if hasattr(sl.provider, "recitation_models"):
+                sl.provider.recitation_models += [m for m in sl.spec.fallback_models if m not in sl.provider.recitation_models]
+        try:
+            return read_page_now(api, item["path"], item["page"], self.settings,
+                                 engine[5:] if engine.startswith("slot:") else "")
+        finally:
+            for sl in api.slots:
+                sl.provider.close()
+
+    def _review_read_local(self, item: dict) -> str:
+        """النموذج المحلي الداخلي (llama-server): يُشغَّل عند أول طلب (دقيقة تقريباً) ويبقى حتى إغلاق البرنامج."""
+        from ..providers.base import OcrRequest
+        from ..providers.local_llama import start_local_provider
+        from ..pdf_io import render_page_png
+        from ..providers.base import PageImage
+        lock = self.__dict__.setdefault("_review_lock", threading.Lock())
+        with lock:
+            prov = getattr(self, "_review_local", None)
+            if prov is None:
+                spec = self.selected_spec()
+                if spec is None or not mm.is_installed(spec):
+                    raise RuntimeError("لا يوجد نموذج داخلي مثبّت (الإعدادات ← داخلي)")
+                model_p, mmproj_p = mm.model_paths(spec)
+                exe, fallback = mm.engine_for(self.settings.use_gpu)
+                prov = start_local_provider(exe, model_p, mmproj_p, app_data_dir() / "logs", spec.id,
+                                            prompt=spec.prompt, gpu=bool(fallback), fallback_exe=fallback)
+                self._review_local = prov
+            with fitz.open(item["path"]) as doc:
+                dpi = 150
+                img = PageImage(item["page"], render_page_png(doc[item["page"] - 1], dpi), dpi)
+            res = prov.ocr(OcrRequest([img]))
+        text = (res[0].markdown if res else "").strip()
+        if not text:
+            raise RuntimeError("النموذج المحلي لم يُخرج نصاً لهذه الصفحة")
+        return text
+
+    def _review_read_paddle(self, item: dict) -> str:
+        from .. import paddle_engine as pe
+        lock = self.__dict__.setdefault("_review_lock", threading.Lock())
+        with lock:
+            w = getattr(self, "_review_paddle", None)
+            if w is None or not w.alive:
+                w = self._review_paddle = pe.PaddleWorker().start()
+            with fitz.open(item["path"]) as doc:
+                png, scale = pe.page_image(doc[item["page"] - 1])
+            res = pe.ocr_page(w, png, self.settings.paddle_min_conf, mark_low=False, scale=scale)
+        text = (res.markdown or "").strip()
+        if not text:
+            raise RuntimeError("PaddleOCR لم يُخرج نصاً لهذه الصفحة")
+        return text
+
     def _open_review(self) -> None:
         items, self.pending_review = self.pending_review, []
         if not items:
             return
         from .review_window import ReviewWindow
-        ReviewWindow(self.root, items, self._apply_review)
+        ReviewWindow(self.root, items, self._apply_review, reader=self._review_read, engines=self.review_engines())
 
     def _apply_review(self, decisions: list[dict]) -> None:
-        if self.busy() or not self.running_jobs:
+        if self.busy():
+            messagebox.showinfo("المراجعة", "البرنامج يعمل الآن على دفعة. انتظر حتى تنتهي ثم نفّذ القرارات.", parent=self.root)
+            return
+        if not self.running_jobs:
+            messagebox.showinfo("المراجعة", "لا توجد ملفات محمّلة في الجدول. أضف الملفات من جديد ثم افتح المراجعة.",
+                                parent=self.root)
             return
         out = self.output_dir()
         self.stop_event = threading.Event()
@@ -1150,6 +1343,8 @@ class MainWindow:
             e = self.files[d["key"]]
             e.pages, e.file_hash, e.error = d["pages"], d["hash"], d["error"]
             e.status = "" if e.error else "جاهز"
+            if d.get("resume") and not e.error:
+                e.status = f"يُستكمل {d['resume'][0]}/{d['resume'][1]}"
             self._row(d["key"])
         elif kind in ("file_start", "page", "file_done", "file_error"):
             if d["index"] >= len(self.running_jobs):
@@ -1196,6 +1391,14 @@ class MainWindow:
             self.pending_review = d["items"]
         elif kind == "finished":
             stopped = d.get("stopped", False)
+            switch, self._switch_mode = getattr(self, "_switch_mode", None), None
+            if switch and stopped:
+                self._set_running(False)
+                self._set_mode(switch)
+                self._refresh_privacy()
+                self.log(f"⇄ الاستكمال بنمط «{dict(auto='تلقائي', local='داخلي', api='عبر المواقع').get(switch, switch)}»")
+                self.root.after(200, self._start)
+                return
             self._set_running(False)
             if d.get("index_only"):
                 self.status_var.set(R("تم بناء الفهرس"))

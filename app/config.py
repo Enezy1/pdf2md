@@ -111,6 +111,9 @@ class Settings:
     dict_min_words: int = 3000           # لا يُطبّق مؤشر القاموس قبل أن يبلغ هذا الحجم
     short_fraction: float = 0.15         # الناتج أقل من هذه النسبة مما تتوقعه كثافة الحبر
     auto_build_index: bool = False       # بناء INDEX.md تلقائياً بعد كل دفعة
+    split_parts: bool = False            # أثناء المعالجة: ملف Markdown لكل N صفحة بجانب الأصل، يُدمجون ويُحذفون عند الانتهاء
+    split_parts_pages: int = 50          # حجم الجزء (5–500)
+    export_docx: bool = False            # كتابة ملف Word (.docx) بجانب كل Markdown (عربي ⇒ يمين لليسار)
     summary_via_api: bool = False        # التلخيص عبر مزوّد API (cloud_gate)
     # ---- توحيد الأرقام ومسار OCR + المصحّح ("عبر المواقع")
     describe_images: bool = True         # الصور داخل المستند: وصف (ونص المحادثات) عبر المواقع، وإلا [صورة]
@@ -125,6 +128,8 @@ class Settings:
     # ---- PaddleOCR (تجريبي، app/paddle_engine.py) — لا أثر لهما إن لم يكن مثبّتاً
     scan_engine: str = "local"           # الصفحات المصوّرة: "local" | "paddle" | "paddle_local" (Paddle ثم المحلي للضعيفة)
     paddle_min_conf: float = 0.8         # أقل ثقة مقبولة لسطر Paddle
+    # ---- كرت الشاشة (اختياري): نسخة llama-server بـ Vulkan؛ الافتراضي المعالج
+    use_gpu: bool = False
     # ---- الواجهة
     cloud_notice_dismissed: bool = False # لا تعرض تنبيه "عبر المواقع" مرة أخرى
     force_ocr_all: bool = False          # فرض OCR على كل الملفات (إضافة لفرضه لملف بعينه)
@@ -164,6 +169,9 @@ class Settings:
             s.ocr_engine = "auto"
         if s.ocrspace_engine not in (2, 3):
             s.ocrspace_engine = 3
+        if not isinstance(s.split_parts_pages, int) or isinstance(s.split_parts_pages, bool):
+            s.split_parts_pages = 50
+        s.split_parts_pages = min(max(s.split_parts_pages, 5), 500)
         if s.scan_engine not in SCAN_ENGINES:
             s.scan_engine = "local"
         v = raw.get("paddle_min_conf")

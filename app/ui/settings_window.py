@@ -148,7 +148,7 @@ class SettingsWindow:
         self.settings = app.settings
         self.win = tk.Toplevel(app.root)
         self.win.title(R("الإعدادات"))
-        theme.fit_window(self.win, px(780), px(620), px(560), px(420))
+        theme.fit_window(self.win, px(780), px(620), px(740), px(420))
         theme.dark_titlebar(self.win)
         self.win.protocol("WM_DELETE_WINDOW", self.close)
         self.lab_thread: threading.Thread | None = None
@@ -242,6 +242,7 @@ class SettingsWindow:
         for p in self._popovers:
             p.hide()
         self._popovers = []
+        self.prov_body.pack_forget()   # البناء وهو مخفي: لا تظهر الصفوف واحداً بعد واحد ولا يعيد كل صف تخطيط النافذة
         for w in self.prov_body.winfo_children():
             w.destroy()
         cfg = self.app.provider_config
@@ -256,6 +257,7 @@ class SettingsWindow:
             return 0 if has_key and cfg.state(sp.id).enabled else 1 if has_key else 2
         for spec in sorted(specs, key=rank):
             self._provider_row(spec)
+        self.prov_body.pack(fill="x")
 
     def _toggle_editor(self, pid: str) -> None:
         self._open_editor = None if self._open_editor == pid else pid
@@ -280,8 +282,8 @@ class SettingsWindow:
             chip, chip_style = "المفتاح محفوظ", "Status.TLabel"
         else:
             chip, chip_style = "بلا مفتاح", "Muted.TLabel"
-        ui.Label(g, text=R(chip), style=chip_style, anchor="e").grid(row=r, column=4, sticky="e",
-                                                                    padx=(px(S3), 0), **pad)
+        chip_lbl = ui.Label(g, text=R(chip), style=chip_style, anchor="e")
+        chip_lbl.grid(row=r, column=4, sticky="e", padx=(px(S3), 0), **pad)
         editing = self._open_editor == spec.id
         r0 = r
         extra_vars = {}
@@ -296,6 +298,12 @@ class SettingsWindow:
             key_entry = ui.Entry(krow, textvariable=key_var, show="•")
             key_entry.pack(side="right", fill="x", expand=True, padx=px(S2))
             from .clipboard import paste_into
+            if spec.key_url:   # ليس عندك مفتاح؟ الرابط يفتح صفحة إنشائه عند المزوّد نفسه
+                kl = ui.Frame(ed)
+                kl.pack(fill="x", pady=(px(S1), 0))
+                ui.Label(kl, text=R("ليس لديك مفتاح؟"), style="Muted.TLabel").pack(side="right")
+                ui.link(kl, "احصل عليه من موقع " + spec.name, lambda: webbrowser.open(spec.key_url)).pack(
+                    side="right", padx=px(S2))
             for ef in spec.extra_fields or ():
                 er = ui.Frame(ed)
                 er.pack(fill="x", pady=(px(S1), 0))
@@ -341,7 +349,10 @@ class SettingsWindow:
             st.enabled = want
             cfg.save()
             self.app.on_settings_changed()
-            self._render_providers()  # يعيد الترتيب: المفعّل يصعد للأعلى
+            # تحديث الصف نفسه فقط (إعادة بناء كل الصفوف عند كل ضغطة كانت تبطّئ الواجهة)؛ الترتيب يُحدَّث عند الفتح التالي
+            now_on = st.enabled and has_key
+            chip_lbl.configure(text=R("مفعّل" if now_on else "المفتاح محفوظ"),
+                               style="Ok.TLabel" if now_on else "Status.TLabel")
 
         if can and has_key:
             ui.Check(g, text="تفعيل", variable=en_var, command=toggle).grid(
@@ -370,14 +381,36 @@ class SettingsWindow:
         ui.Label(f, text=R(spec.name), style="Subtitle.TLabel").pack(anchor="e", pady=(0, px(S1)))
         if spec.description:
             line(spec.description)
-        used = usage.get(spec.id)
-        rpd = f" من {spec.rpd}" if spec.rpd else ""
-        approx = " (تقريبي)" if spec.approx_counter else ""
-        ex = " — انتهت حصة اليوم" if usage.is_exhausted(spec.id) else ""
-        line(f"اليوم: {used}{rpd} طلب{approx}{ex}", "Muted.TLabel")
+        if spec.parallel_models and not spec.custom:
+            # Gemini: عدّاد لكل نموذج (ليوم المحيط الهادئ الذي تتجدد عنده حصة Google). لا يوجد في API رقم «المتبقي» الحقيقي،
+            # فهذا ما أرسله هذا البرنامج فقط (طلبات من برامج أخرى بنفس المفتاح لا تظهر).
+            from ..dispatcher import gemini_counter
+            gu = gemini_counter(usage)
+            for m in spec.parallel_models:
+                u = gu.get(f"{spec.id}:{m}")
+                left = max(spec.parallel_rpd - u, 0) if spec.parallel_rpd else None
+                line(f"{m}: استُخدم {u}" + (f" من {spec.parallel_rpd} — المتبقي {left}" if left is not None else ""),
+                     "Muted.TLabel")
+            for m in spec.fallback_models:
+                u = gu.get(f"{spec.id}:{m}")
+                if u:
+                    line(f"{m} (احتياط): استُخدم {u}" + (f" من ~{spec.fallback_rpd}" if spec.fallback_rpd else ""),
+                         "Muted.TLabel")
+            line("تتجدد الحصص عند منتصف الليل بتوقيت المحيط الهادئ (10 صباحاً بتوقيت الكويت صيفاً، 11 شتاءً). "
+                 "الأرقام من عدّاد هذا البرنامج فقط ولا تشمل ما استعملته خارجه.", "Muted.TLabel")
+        else:
+            used = usage.get(spec.id)
+            rpd = f" من {spec.rpd}" if spec.rpd else ""
+            approx = " (تقريبي)" if spec.approx_counter else ""
+            ex = " — انتهت حصة اليوم" if usage.is_exhausted(spec.id) else ""
+            line(f"اليوم: {used}{rpd} طلب{approx}{ex}", "Muted.TLabel")
 
         model_var = tk.StringVar(value=st.model or spec.default_model)
-        if not spec.is_ocr:   # محرّك OCR لا يحتاج اسم نموذج
+        auto = bool(spec.parallel_models) and not spec.custom   # النماذج محددة في الكتالوج: لا حقل
+        if auto:
+            line("النماذج (تلقائي): " + " + ".join(spec.parallel_models) + " بالتوازي. الاحتياط عند انتهاء حصتها: "
+                 + " ← ".join(spec.fallback_models), "Muted.TLabel")
+        if not spec.is_ocr and not auto:   # محرّك OCR لا يحتاج اسم نموذج
             grid = ui.Frame(f)
             grid.pack(fill="x", pady=(px(S2), 0))
             ui.Label(grid, text=R("النموذج"), style="Muted.TLabel").grid(row=0, column=1, sticky="e", padx=(px(S2), 0))
@@ -396,7 +429,8 @@ class SettingsWindow:
         btns.pack(fill="x", pady=(px(S2), 0))
 
         def apply_fields() -> bool:
-            st.model = model_var.get().strip() or spec.default_model
+            if not auto:
+                st.model = model_var.get().strip() or spec.default_model
             cfg.save()
             return True
 
@@ -413,13 +447,18 @@ class SettingsWindow:
                 from ..dispatcher import make_provider
                 from ..model_picker import models_for, picker_for
                 try:
-                    model = picker_for(spec.id, models_for(spec, st)).current
-                    prov = make_provider(spec, st, key, model)
-                    try:
-                        text = self.app.gate.probe(prov, model)
-                    finally:
-                        prov.close()
-                    msg = "✓ يعمل" if text.strip() else "✓ متصل لكن الرد فارغ"
+                    names = list(spec.parallel_models) if auto else [picker_for(spec.id, models_for(spec, st)).current]
+                    results = []
+                    for model in names:
+                        prov = make_provider(spec, st, key, model)
+                        try:
+                            text = self.app.gate.probe(prov, model)
+                            results.append(f"✓ {model}" if text.strip() else f"✓ {model} (الرد فارغ)")
+                        except Exception as e:
+                            results.append(f"✗ {model}: {str(e)[:100] or type(e).__name__}")
+                        finally:
+                            prov.close()
+                    msg = "\n".join(results) if auto else results[0].replace(f"{names[0]}", "يعمل", 1)
                 except Exception as e:
                     msg = f"✗ لم ينجح الاتصال: {str(e)[:120] or type(e).__name__}"
                 try:
@@ -488,6 +527,9 @@ class SettingsWindow:
         self.eng_body = ui.Frame(sec)
         self.eng_body.pack(fill="x")
         self.paddle_opts = ui.Frame(sec)
+        self.gpu_opts = ui.Frame(sec)
+        self.gpu_opts.pack(fill="x", pady=(px(S2), 0))
+        self._render_gpu_opts()
         r = ui.Frame(sec)
         r.pack(fill="x", pady=(px(S3), 0))
         ui.Button(r, text=R("اختيار مجلد التنصيب (فلاشة)"), command=self._import_model_folder).pack(side="right")
@@ -550,10 +592,16 @@ class SettingsWindow:
                 active = mode in (ec.LOCAL, ec.PADDLE_LOCAL) and active_spec is not None and active_spec.id == spec.id
                 size = spec.total_size
                 note = "" if (exe or not installed) else "ينقص محرّك llama-server"
-            ui.Label(g, text=R(name), anchor="e").grid(row=i, column=5, sticky="ne", padx=(px(S2), 0), **pad)
+            # الاسم والملخص يلتفّان بعرض ثابت: الملخص الطويل كان يوسّع العمود فيُقصّ خارج النافذة
+            wrap = px(230)
+            verdict = cat.VERDICTS.get(eid, cat.UNTESTED)
+            box = ui.Frame(g)
+            box.grid(row=i, column=5, sticky="ne", padx=(px(S2), 0), **pad)
+            ui.Label(box, text=theme.wrap_rtl(name, ui.label_font("TLabel"), wrap), justify="right",
+                     anchor="e").pack(fill="x")
             # نتيجة التجربة تحت الاسم (من الأفضل للأسوأ: models_catalog.RANKING)
-            ui.Label(g, text=R(cat.VERDICTS.get(eid, cat.UNTESTED)), style="Muted.TLabel", anchor="e").grid(
-                row=i, column=5, sticky="se", padx=(px(S2), 0))
+            ui.Label(box, text=theme.wrap_rtl(verdict, ui.label_font("Muted.TLabel"), wrap), style="Muted.TLabel",
+                     justify="right", anchor="e").pack(fill="x")
             bg = self.app.bg
             if bg.key == eid and (bg.running or bg.paused):
                 self._download_row(g, i, pad)
@@ -591,6 +639,7 @@ class SettingsWindow:
         old.destroy()
         self.eng_body = g
         self._render_paddle_opts(mode)
+        self._render_gpu_opts()   # يُعاد رسمها بعد تنزيل نسخة الكرت
         if hasattr(self, "lab_models_frame"):
             self._render_lab_models()
 
@@ -679,6 +728,68 @@ class SettingsWindow:
         ui.Para(self.paddle_opts, style="Muted.TLabel", text=(
             "الأسطر الأقل ثقة تُعلَّم بـ [؟] وتظهر في تقرير المراجعة، أو تُعاد صفحتها على النموذج المحلي "
             "إن فعّلت الخيار أعلاه.")).pack(fill="x", pady=(px(S1), 0))
+
+    def _split_parts_row(self, sec: tk.Frame) -> None:
+        """كتاب كبير: ملف Markdown لكل N صفحة بجانب الأصل أثناء المعالجة (يبقى ما اكتمل لو توقف البرنامج)،
+        ثم يُدمجون في الملف النهائي وتُحذف الأجزاء عند اكتمال الملف."""
+        s = self.settings
+        r = ui.Frame(sec)
+        r.pack(fill="x", pady=(px(S1), 0))
+        v = tk.BooleanVar(value=s.split_parts)
+        ui.Check(r, text=theme.ck("حفظ أجزاء أثناء المعالجة كل"), variable=v,
+                 command=lambda: self._set("split_parts", bool(v.get()))).pack(side="right")
+        nv = tk.StringVar(value=str(s.split_parts_pages))
+        e = ui.Entry(r, textvariable=nv, width=5)
+        e.pack(side="right", padx=px(S2))
+        ui.Label(r, text=R("صفحة"), ).pack(side="right")
+
+        def save(_e=None):
+            try:
+                self._set("split_parts_pages", min(max(int(nv.get()), 5), 500))
+            except ValueError:
+                pass
+            nv.set(str(self.settings.split_parts_pages))
+        e.bind("<FocusOut>", save)
+        e.bind("<Return>", save)
+        ui.Para(sec, style="Muted.TLabel", text=(
+            "تُحفظ ملفات باسم الكتاب.part01.md بجانب الأصل، وتُدمج في الملف النهائي وتُحذف عند اكتمال الكتاب. "
+            "للكتب الكبيرة فقط.")).pack(fill="x", pady=(px(S1), 0))
+
+    def _render_gpu_opts(self) -> None:
+        """تشغيل النماذج المحلية على كرت الشاشة (Vulkan). الافتراضي المعالج؛ وإن فشل الكرت يعود البرنامج للمعالج وحده."""
+        from .. import gpu_info
+        for w in self.gpu_opts.winfo_children():
+            w.destroy()
+        v = tk.BooleanVar(value=self.settings.use_gpu)
+        ui.Check(self.gpu_opts, text=theme.ck("استخدام كرت الشاشة للنماذج المحلية (Vulkan)"), variable=v,
+                 command=lambda: (self._set("use_gpu", bool(v.get())), self._render_gpu_opts())).pack(anchor="e")
+        info = ui.Label(self.gpu_opts, text=R("جارٍ الكشف عن الكرت…"), style="Muted.TLabel", anchor="e")
+        info.pack(fill="x")
+        if self.settings.use_gpu and not mm.llama_exe(gpu=True):
+            ui.Label(self.gpu_opts, text=R("نسخة الكرت غير منزّلة، فيعمل المعالج حتى تنزّلها."),
+                     style="Err.TLabel", anchor="e").pack(fill="x")
+            ui.Button(self.gpu_opts, text=R(f"تنزيل دعم الكرت ({cat.LLAMA_VULKAN_ZIP.size / 1e6:.0f}MB)"),
+                      command=self._download_gpu_engine).pack(anchor="e", pady=(px(S1), 0))
+        elif self.settings.use_gpu:
+            ui.Label(self.gpu_opts, text=R("نسخة الكرت جاهزة. إن تعذّر تشغيلها يعود البرنامج للمعالج تلقائياً."),
+                     style="Muted.TLabel", anchor="e").pack(fill="x")
+
+        def work():
+            text = gpu_info.advice(gpu_info.detect())
+            try:
+                self.win.after(0, lambda: info.winfo_exists() and info.configure(text=R(text)))
+            except Exception:
+                pass
+        threading.Thread(target=work, daemon=True).start()
+
+    def _download_gpu_engine(self) -> None:
+        if mm.llama_exe(gpu=True):
+            return
+        if not messagebox.askyesno(
+                "تنزيل", f"تنزيل محرّك llama.cpp {cat.LLAMA_TAG} بنسخة Vulkan ({cat.LLAMA_VULKAN_ZIP.size / 1e6:.0f}MB) "
+                         "من GitHub؟ مع التحقق من البصمة.", parent=self.win):
+            return
+        self._bg("تنزيل دعم الكرت", lambda pr, st: f"تم التثبيت: {mm.download_llama(pr, st, gpu=True)}")
 
     def _set_paddle_mode(self, mode: str) -> None:
         self._set("scan_engine", mode)
@@ -1112,7 +1223,9 @@ class SettingsWindow:
         self._checks(sec, (
             ("البحث في المجلدات الفرعية", "include_subfolders"),
             ("بناء الفهرس تلقائياً بعد كل دفعة", "auto_build_index"),
+            ("إنشاء ملف Word (.docx) بجانب كل Markdown", "export_docx"),
         ))
+        self._split_parts_row(sec)
 
         sec = self._section(root, "المظهر")
         r = ui.Frame(sec)
@@ -1189,7 +1302,7 @@ class SettingsWindow:
         form = ui.Frame(sec)
         form.pack(fill="x", pady=(px(S2), 0))
         form.columnconfigure(0, weight=1)
-        engines = {"auto": "تلقائي حسب المفاتيح", "ocrspace": "OCR.space ثم المصحّح", "vision": "نموذج الرؤية مباشرة"}
+        engines = {"auto": "تلقائي حسب المفاتيح", "ocrspace": "OCR (OCR.space / Cloud Vision) ثم المصحّح", "vision": "نموذج الرؤية مباشرة"}
         ui.Label(form, text=R("محرّك OCR")).grid(row=0, column=1, sticky="e", pady=px(S1))
         ev = tk.StringVar(value=engines.get(s.ocr_engine, engines["auto"]))
         ecb = ui.Combo(form, textvariable=ev, values=list(engines.values()), width=22, state="readonly")

@@ -19,8 +19,9 @@ _pickers: dict[str, "ModelPicker"] = {}
 
 
 class ModelPicker:
-    def __init__(self, pid: str, models: list[str], clock=time.monotonic):
+    def __init__(self, pid: str, models: list[str], clock=time.monotonic, sticky: bool = False):
         self.pid = pid
+        self.sticky = sticky    # لا ينتقل إلا عند انتهاء الحصة اليومية (الازدحام وحد الدقيقة: انتظار)
         self.models = list(dict.fromkeys(m for m in models if m))
         self.clock = clock
         self._lock = threading.Lock()
@@ -54,6 +55,8 @@ class ModelPicker:
         """يسجّل مشكلة النموذج الحالي ويحاول الانتقال لغيره.
         kind: "busy" أو "limited" أو "quota". يعيد (انتقل؟، القديم، الجديد)."""
         old = self.current
+        if self.sticky and kind != "quota":
+            return False, old, old
         with self._lock:
             if kind == "quota":
                 self._exhausted[old] = date.today().isoformat()
@@ -76,12 +79,12 @@ class ModelPicker:
         return not self._available()
 
 
-def picker_for(pid: str, models: list[str]) -> ModelPicker:
+def picker_for(pid: str, models: list[str], sticky: bool = False) -> ModelPicker:
     """نفس الكائن طوال الجلسة حتى يتذكر البرنامج أي النماذج كانت مزدحمة."""
     with _lock:
         p = _pickers.get(pid)
-        if p is None or p.models != list(dict.fromkeys(m for m in models if m)):
-            p = _pickers[pid] = ModelPicker(pid, models)
+        if p is None or p.models != list(dict.fromkeys(m for m in models if m)) or p.sticky != sticky:
+            p = _pickers[pid] = ModelPicker(pid, models, sticky=sticky)
         return p
 
 

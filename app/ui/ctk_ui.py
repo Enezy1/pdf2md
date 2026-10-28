@@ -161,8 +161,10 @@ class Btn(ctk.CTkFrame):
             self._bind_all(w)
 
     def _fit(self, min_width: int) -> None:
-        self.update_idletasks()
-        need = int(self._inner.winfo_reqwidth() / max(self._get_widget_scaling(), 0.1)) + 36
+        # قياس مباشر من عرض الملصقات: update_idletasks هنا كانت تعيد رسم كل النافذة لكل زر (~40ms) فتبطؤ الإعدادات
+        lbls = [l for l in (self._icon_lbl, self._text_lbl) if l is not None]
+        gap = px(6) if len(lbls) == 2 else 0
+        need = int((sum(l.winfo_reqwidth() for l in lbls) + gap) / max(self._get_widget_scaling(), 0.1)) + 36
         self.configure(width=max(min_width, need))
 
     def _bind_all(self, w) -> None:

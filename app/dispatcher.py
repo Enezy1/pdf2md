@@ -33,8 +33,8 @@ from .fsutil import atomic_write_json, atomic_write_text
 from .markdown_out import write_markdown
 from .page_score import score_text
 from .providers.base import AuthError, ExternalProvider, OcrRequest, PageImage, QuotaExhausted
-from .providers.batching import MARKER_RE, build_prompt, chunk_pages, normalize_page, run_with_split, split_and_check, tail_lines
-from .quality import weak_ocr_reason
+from .providers.batching import MARKER_RE, build_prompt, chunk_pages, plan_whole, normalize_page, run_with_split, split_and_check, tail_lines
+from .quality import looks_like_refusal, repetition_problem, visible_chars, weak_ocr_reason
 from .providers.catalog import ProviderSpec, ProviderState
 from .providers.render import render_page_jpeg
 from .rate_limit import GiveUp, RateLimiter, Stopped, UsageCounter
@@ -137,7 +137,7 @@ class ApiRunner:
         self._e3_warned = False
         if settings.fast_corrector:   # المصحّح نصي فقط: نسخة أخف وأسرع من نفس المزوّد إن وُجدت
             for sl in slots:
-                lite = next((m for m in sl.spec.fallback_models if "lite" in m), "")
+                lite = next((m for m in [*sl.spec.parallel_models, *sl.spec.fallback_models] if "lite" in m), "")
                 if lite and hasattr(sl.provider, "text_model"):
                     sl.provider.text_model = lite
 
@@ -167,6 +167,7 @@ class ApiRunner:
                 t.start()
             for t in threads:
                 t.join()
+        self._log_gemini_usage()
         if self._queue and not self.stop.is_set():
             self.report.quota_stopped = True
             names = "، ".join(j.name for j in self._queue)
@@ -179,6 +180,18 @@ class ApiRunner:
                 why = "لا يوجد مزوّد متاح"
             self.emit("log", text=f"⏸ {why}. التقدّم محفوظ؛ اضغط ابدأ لاحقاً للإكمال من نفس الصفحة: {names}")
         return self.report
+
+    def _log_gemini_usage(self) -> None:
+        """سطر في السجل بما استُهلك اليوم من حصة كل نموذج Gemini خفيف (من عدّاد هذا البرنامج)."""
+        parts = []
+        for sl in self.slots:
+            spec = sl.spec
+            if spec.kind == "gemini" and spec.parallel_models and spec.parallel_rpd:
+                m = sl.picker.models[0] if sl.picker is not None and sl.picker.models else ""
+                used = sl.limiter.usage.get(sl.limiter.pid)
+                parts.append(f"{m}: {used} من {spec.parallel_rpd} (المتبقي {max(spec.parallel_rpd - used, 0)})")
+        if parts:
+            self.emit("log", text="📊 Gemini اليوم — " + "، ".join(parts))
 
     def _next_job(self) -> ApiJob | None:
         with self._cond:
@@ -246,16 +259,48 @@ class ApiRunner:
             pages = pages_to_send(state, s)
             if not pages:
                 return
-            size = slot.batch_size(s)
+            whole = slot.spec.whole_doc_pages
+            chunks = plan_whole(pages, whole) if whole else chunk_pages(pages, slot.batch_size(s))
+            size = max(len(c) for c in chunks)
             self.emit("api_file", index=job.index, name=job.name, provider=slot.id, pages=len(pages), batch=size)
+            lanes = [slot] + [sl for sl in self.llm_slots() if sl is not slot and sl.spec.id == slot.spec.id
+                              and sl.spec.parallel_models]
             try:
-                for chunk in chunk_pages(pages, size):
-                    if self.stop.is_set():
-                        raise Stopped()
-                    self._send_chunk(doc, chunk, state, job, slot)
-                    self.emit("api_progress", provider=slot.id, count=slot.limiter.usage.get(slot.id))
+                if whole and len(chunks) > 1 and len(lanes) > 1:
+                    self._send_parallel(chunks, state, job, slot, lanes)
+                else:
+                    for chunk in chunks:
+                        if self.stop.is_set():
+                            raise Stopped()
+                        self._send_chunk(doc, chunk, state, job, slot)
+                        self.emit("api_progress", provider=slot.id, count=slot.limiter.usage.get(slot.limiter.pid))
             finally:
                 write_markdown(state, job.name, self.md_dir_for(job.path), s.normalize_digits, s.strip_page_furniture)
+
+    def _send_parallel(self, chunks, state, job, slot, lanes) -> None:
+        """مستند كبير (أجزاؤه >1): كل جزء على مسار نموذج مختلف معاً (3.5 و3.1)، فيقصر الوقت للنصف تقريباً.
+        لكل خيط نسخته من ملف PDF (PyMuPDF لا يُشارَك بين الخيوط). إن سقط مسار مساعد يُعاد جزؤه على المسار الأصلي."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        def run(i: int, chunk: list[int]) -> None:
+            lane = lanes[i % len(lanes)]
+            with fitz.open(job.path) as d:
+                try:
+                    self._send_chunk(d, chunk, state, job, lane)
+                except _SlotDown as e:
+                    if lane is slot:
+                        raise
+                    lane.down, lane.down_kind = str(e), e.kind
+                    self.report.down[lane.id] = str(e)
+                    self.emit("log", text=f"⚠ مسار {lane.provider.model} توقف ({e}) — يُكمل الجزء على المسار الآخر")
+                    self._send_chunk(d, chunk, state, job, slot)
+            self.emit("api_progress", provider=slot.id, count=slot.limiter.usage.get(slot.limiter.pid))
+
+        self.emit("log", text=f"⚡ {job.name}: {len(chunks)} أجزاء على {len(lanes)} مسارات معاً")
+        with ThreadPoolExecutor(max_workers=len(lanes)) as pool:
+            futures = [pool.submit(run, i, c) for i, c in enumerate(chunks)]
+            for f in futures:
+                f.result()
 
     def _send_chunk(self, doc, chunk: list[int], state: cp.FileState, job: ApiJob, slot: Slot) -> None:
         s = self.settings
@@ -310,12 +355,46 @@ class ApiRunner:
                 state.save_page(o.page, cp.DONE, f"api:{slot.id}", normalize_page(o.markdown),
                                 **meta, model=model, batch_size=o.batch_size)
                 state.local_path(o.page).unlink(missing_ok=True)
+            elif self._accept_weak(state, o, meta, slot, job, model):
+                pass
+            elif self._describe_page(state, o, meta, slot, job, send, images, model):
+                pass
             else:
                 state.save_page(o.page, cp.NEEDS_REVIEW, "none", **meta, review_reason="api_incomplete",
                                 api_tried=True, problems=o.problems[:5], tried_provider=slot.id)
                 self.emit("log", text=f"⚠ {job.name} ص{o.page}: ناتج {slot.id} ناقص — عُلّقت للمراجعة")
             self.emit("page", index=job.index, page=o.page, pages=state.page_count, status=state.status(o.page))
 
+
+    def _accept_weak(self, state, o, meta, slot, job, model) -> bool:
+        """نص قصير أو بلا علامة لكنه نص حقيقي: يُقبل كما هو (قد فيه أخطاء قليلة) بدل تعليق الصفحة للمراجعة.
+        يُرفض إن كان حلقة تكرار أو شبه فارغ."""
+        text = normalize_page(o.partial or "")
+        if visible_chars(text) < 20 or repetition_problem(text) or looks_like_refusal(text):
+            return False
+        state.save_page(o.page, cp.DONE, f"api:{slot.id}", text, **meta, model=model, batch_size=o.batch_size,
+                        weak=True, problems=o.problems[:3])
+        state.local_path(o.page).unlink(missing_ok=True)
+        self.emit("log", text=f"ℹ {job.name} ص{o.page}: قُبل النص كما وصل (فحص الاكتمال شكّ فيه: {'؛ '.join(o.problems[:1])})")
+        return True
+
+    def _describe_page(self, state, o, meta, slot, job, send, images, model) -> bool:
+        """صفحة لم يُخرج النموذج لها نصاً (غالباً صورة أو ختم أو مخطط): يُكتب وصف موجز مع إيضاح أنها لم تُحوَّل نصاً."""
+        from .images import PHOTO_PROMPT
+        img = next((i for i in images if i.page_number == o.page), None)
+        if img is None or o.partial.strip():
+            return False
+        try:
+            desc = send(PHOTO_PROMPT, OcrRequest([img])).strip()
+        except Exception:
+            return False
+        if visible_chars(desc) < 5 or looks_like_refusal(desc):
+            return False
+        md = "> [صفحة لم تُحوَّل إلى نص — الوصف التالي توليد آلي لما تُظهره الصفحة]" + chr(10) + chr(10) + desc
+        state.save_page(o.page, cp.DONE, f"api:{slot.id}", md, **meta, model=model, batch_size=1, described=True)
+        state.local_path(o.page).unlink(missing_ok=True)
+        self.emit("log", text=f"🖼 {job.name} ص{o.page}: لم يُخرج النموذج نصاً — كُتب وصف للصفحة")
+        return True
 
     # ------------------------------------------------------------------ سلسلة OCR
     def _corrector_slot(self) -> Slot | None:
@@ -390,13 +469,13 @@ class ApiRunner:
         try:
             text = slot.limiter.call(lambda: self.gate.send(job.ticket, slot.provider, "", OcrRequest([img]),
                                                             slot.provider.model),
-                                     log=lambda t: self.emit("log", text=t))
+                                     log=lambda t: self.emit("log", text=t), max_429=OCR_MAX_429)
         except GiveUp as e:
-            raise _SlotDown(str(e), "busy" if e.busy else "errors") from None
+            raise self._ocr_down(slot, str(e), "busy" if e.busy else "errors") from None
         except QuotaExhausted as e:
-            raise _SlotDown(str(e), "quota") from None
+            raise self._ocr_down(slot, str(e), "quota") from None
         except AuthError as e:
-            raise _SlotDown(str(e), "auth") from None
+            raise self._ocr_down(slot, str(e), "auth") from None
         if getattr(slot.provider, "engine", 0) == 3:
             slot.limiter.usage.add_month(f"{slot.id}:e3")
         return text
@@ -421,9 +500,18 @@ class ApiRunner:
                     p.set_engine(first)
         return text
 
+    @staticmethod
+    def _ocr_down(slot: Slot, why: str, kind: str) -> _SlotDown:
+        """يُعلَن سقوط المزوّد فوراً: بقية صفحات الدفعة والدفعات المتوازية لا تستهلك محاولاتها
+        (كانت كل صفحة تنتظر ~1 د قبل أن تستسلم)، فيتسلّم نموذج الرؤية (Gemini) الملف مبكراً."""
+        slot.down, slot.down_kind = slot.down or why, slot.down_kind or kind
+        return _SlotDown(why, kind)
+
     def _ocr_limited(self, job: ApiJob, slot: Slot, img, abort: threading.Event) -> str:
         # OCR.space يرد 429 على الطلبات المتزامنة الكثيرة (تجربة 2026-10-10): طلبان معاً كحد أقصى
         with self._ocr_sem:
+            if slot.down:
+                raise _SlotDown(slot.down, slot.down_kind)
             return self._ocr_one(job, slot, img, abort)
 
     def _good_enough(self, body: str) -> bool:
@@ -528,6 +616,10 @@ class ApiRunner:
             for n in info:
                 if n not in hard and n not in easy and n not in full:
                     results[n] = (info[n]["body"], None, False)          # جيدة بما يكفي: بلا تصحيح
+            for n, i in info.items():   # قرار كل صفحة في السجل (صفحات "تحقق" لها سطورها الخاصة عند الحفظ)
+                note = _route_note(n, i, llm, full, hard, easy, skip, s.send_hard_images)
+                if note:
+                    self.emit("log", text=f"⇢ {job.name} ص{n}: {note}")
             self.emit("stage", name=job.name, pages=rng, step="correct")
             if easy:
                 raw = "\n\n".join(f"<!-- page:{n} -->\n{info[n]['body']}" for n in easy)
@@ -598,7 +690,7 @@ class ApiRunner:
                                   "image": used_image}
                     atomic_write_json(state.pages_dir / f"p{n:04d}.edits.json", entries[n])
                 self.emit("page", index=job.index, page=n, pages=state.page_count, status=state.status(n))
-            self.emit("api_progress", provider=slot.id, count=slot.limiter.usage.get(slot.id))
+            self.emit("api_progress", provider=slot.id, count=slot.limiter.usage.get(slot.limiter.pid))
         if failure is not None:
             raise failure
         return entries
@@ -727,9 +819,30 @@ class ApiRunner:
         atomic_write_text(target, corrector.render_report(name, report))
 
 
-OCR_CONCURRENCY = 1            # OCR.space المجاني يرد 429 حتى على طلبين متزامنين (تجربتان 2026-10-10)
+OCR_MAX_429 = 3                 # 429 متتالية (2+4 ث انتظار) ثم يتسلّم Gemini بدل انتظار ~1 د لكل صفحة
+OCR_CONCURRENCY = 1           # OCR.space المجاني يرد 429 حتى على طلبين متزامنين (تجربتان 2026-10-10)
 CHAIN_BATCH = 3                 # صفحات في كل دفعة OCR + طلب تصحيح واحد
 SKIP_UNKNOWN_RATIO = 0.03       # كلمات غير معروفة للقاموس أقل من 3% ⇒ لا حاجة للمصحّح
+
+
+_WHY_AR = {"rotated": "مدوّرة", "table": "جدول", "weak": "قراءتها ضعيفة", "numbers": "أرقام مختلفة بين القراءتين"}
+
+
+def _route_note(n: int, i: dict, llm: Slot, full: dict, hard: list[int], easy: list[int], skip: set[int],
+                send_hard: bool) -> str:
+    """سطر السجل: ما قرره البرنامج لهذه الصفحة بعد OCR.space ولماذا ("" ⇒ لها سطر خاص عند الحفظ)."""
+    who = llm.spec.name
+    if n in full:
+        why = _WHY_AR.get(i["full_why"], i["full_why"])
+        return f"{why} ← صورة الصفحة كاملة إلى {who}"
+    if n in skip:
+        return ""
+    if n in hard:
+        return f"قراءتها ضعيفة ← صورتها مع النص إلى {who}"
+    if n in easy:
+        tail = "" if send_hard or not i["weak"] else " (ضعيفة لكن إرسال الصور الصعبة معطّل)"
+        return f"فيها كلمات غير معروفة للقاموس ← نصها فقط إلى {who} للتصحيح{tail}"
+    return "كلماتها معروفة للقاموس (أقل من 3% مجهولة) ← بلا تصحيح"
 
 
 def _split_pages(text: str) -> dict[int, str]:
@@ -744,14 +857,44 @@ def make_provider(spec: ProviderSpec, state: ProviderState, key: str, model: str
     model = model or state.model or spec.default_model
     if not model:
         raise ValueError(f"{spec.name}: لم يُحدد اسم النموذج")
+    if spec.kind == "ocr" and spec.id == "qari":
+        from .providers.qari_api import QariApiProvider
+        return QariApiProvider(spec.id, key, endpoint=spec.base_url)
+    if spec.kind == "ocr" and spec.id == "google_vision":
+        from .providers.google_vision import GoogleVisionProvider
+        return GoogleVisionProvider(spec.id, key, endpoint=spec.base_url)
     if spec.kind == "ocr":
         from .providers.ocrspace import OcrSpaceProvider
         return OcrSpaceProvider(spec.id, key, engine=3, endpoint=spec.base_url)
     if spec.kind == "gemini":
         from .providers.gemini import GeminiProvider
-        return GeminiProvider(key, model, spec.max_pages_per_call)
+        prov = GeminiProvider(key, model, spec.max_pages_per_call)
+        # عند حجب RECITATION: النموذج الخفيف الآخر فقط (حصته 500/يوم)؛ النماذج القوية (20/يوم) محفوظة لزر «اقرأها الآن»
+        prov.recitation_models = [m for m in spec.parallel_models if m != model]
+        return prov
     from .providers.openai_compat import OpenAICompatProvider
     return OpenAICompatProvider(spec.id, spec.resolved_base_url(state.extra), key, model, spec.max_pages_per_call)
+
+
+_gemini_counters: dict = {}
+
+
+def _pacific_today() -> str:
+    """Google تجدّد حصة Gemini اليومية عند منتصف الليل بتوقيت المحيط الهادئ (لا بتوقيتك المحلي)."""
+    from datetime import datetime, timedelta, timezone
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+    except Exception:
+        return (datetime.now(timezone.utc) - timedelta(hours=8)).date().isoformat()
+
+
+def gemini_counter(usage: UsageCounter) -> UsageCounter:
+    """عدّاد Gemini المنفصل (يوم المحيط الهادئ) بملف بجانب usage.json؛ نفس الكائن لكل الاستدعاءات."""
+    key = str(usage.path)
+    if key not in _gemini_counters:
+        _gemini_counters[key] = UsageCounter(usage.path.with_name("usage_gemini.json"), today=_pacific_today)
+    return _gemini_counters[key]
 
 
 def build_slots(config, secrets, usage: UsageCounter, stop: threading.Event,
@@ -759,15 +902,26 @@ def build_slots(config, secrets, usage: UsageCounter, stop: threading.Event,
     slots = []
     for spec, st, key in config.active(secrets):
         from .model_picker import models_for, picker_for
-        picker = picker_for(spec.id, models_for(spec, st))
-        try:
-            provider = make_provider(spec, st, key, picker.current)
-        except Exception as e:
-            emit("log", text=f"⚠ تعذّر تجهيز {spec.name}: {e}")
-            continue
-        limiter = RateLimiter(spec.id, st.rpm, usage, rpd=spec.rpd, stop=stop, rpmonth=spec.rpmonth)
-        slot = Slot(spec, st, provider, limiter, picker=picker)
-        if usage.is_exhausted(spec.id):
-            slot.down, slot.down_kind = "الحصة اليومية منتهية", "quota"
-        slots.append(slot)
+        if spec.parallel_models and not spec.custom:   # النموذج المحفوظ في الإعدادات (القديم) لا يعطّل التوازي
+            # عامل لكل نموذج متوازٍ (حد دقيقة مستقل)، والاحتياط مشترك يُستخدم بعد انتهاء حصة النموذج
+            lanes = [(f"{spec.id}:{m}", [m, *spec.fallback_models], True) for m in spec.parallel_models]
+        else:
+            lanes = [(spec.id, models_for(spec, st), False)]
+        for lane_id, models, sticky in lanes:
+            picker = picker_for(lane_id, models, sticky=sticky)
+            try:
+                provider = make_provider(spec, st, key, picker.current)
+            except Exception as e:
+                emit("log", text=f"⚠ تعذّر تجهيز {spec.name}: {e}")
+                break
+            rpm = spec.parallel_rpm if sticky and spec.parallel_rpm else st.rpm
+            lane_usage = gemini_counter(usage) if spec.kind == "gemini" else usage
+            limiter = RateLimiter(lane_id, rpm, lane_usage, rpd=(spec.parallel_rpd or None) if sticky else spec.rpd,
+                                  stop=stop, rpmonth=spec.rpmonth)
+            if hasattr(provider, "on_extra_call"):
+                provider.on_extra_call = lambda m, _u=lane_usage, _sid=spec.id: _u.add(f"{_sid}:{m}")
+            slot = Slot(spec, st, provider, limiter, picker=picker)
+            if lane_usage.is_exhausted(lane_id):
+                slot.down, slot.down_kind = "الحصة اليومية منتهية", "quota"
+            slots.append(slot)
     return slots

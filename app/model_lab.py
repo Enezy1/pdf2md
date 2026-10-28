@@ -211,7 +211,7 @@ def run(pdf: Path, pages: list[int], models: list[cat.ModelSpec], report: Report
 
     stop = stop or threading.Event()
     report.dpis = tuple(dpis)
-    exe = mm.llama_exe()
+    exe, fallback = mm.engine_for(Settings.load().use_gpu)
     with fitz.open(pdf) as doc:
         renders = {(dpi, p): render_page_png(doc[p - 1], dpi) for dpi in dpis for p in pages}
     for p in pages:
@@ -227,7 +227,8 @@ def run(pdf: Path, pages: list[int], models: list[cat.ModelSpec], report: Report
                 provider = provider_factory(m)
             else:
                 model_p, mmproj_p = mm.model_paths(m)
-                provider = start_local_provider(exe, model_p, mmproj_p, app_data_dir() / "logs", m.id, stop=stop)
+                provider = start_local_provider(exe, model_p, mmproj_p, app_data_dir() / "logs", m.id, stop=stop,
+                                              prompt=m.prompt, gpu=bool(fallback), fallback_exe=fallback)
         except Exception as e:
             if stop.is_set():
                 raise Stopped() from e

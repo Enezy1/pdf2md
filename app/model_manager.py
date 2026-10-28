@@ -227,13 +227,28 @@ def llama_root() -> Path:
     return app_data_dir() / "llama"
 
 
-def llama_exe() -> Path | None:
-    exe = llama_root() / cat.LLAMA_TAG / "llama-server.exe"
+def _llama_dir(gpu: bool) -> Path:
+    return llama_root() / (cat.LLAMA_TAG + ("-vulkan" if gpu else ""))
+
+
+def llama_exe(gpu: bool = False) -> Path | None:
+    """نسخة المعالج (الافتراضية) أو نسخة Vulkan لكرت الشاشة."""
+    exe = _llama_dir(gpu) / "llama-server.exe"
     return exe if exe.is_file() else None
 
 
-def _extract_llama(zip_path: Path) -> Path:
-    target = llama_root() / cat.LLAMA_TAG
+def engine_for(use_gpu: bool) -> tuple[Path | None, Path | None]:
+    """(المحرّك المطلوب، محرّك المعالج الاحتياطي). إن طُلب الكرت ولم تُنزَّل نسخته يُستعمل المعالج."""
+    cpu = llama_exe()
+    if use_gpu:
+        gpu = llama_exe(gpu=True)
+        if gpu:
+            return gpu, cpu
+    return cpu, None
+
+
+def _extract_llama(zip_path: Path, gpu: bool = False) -> Path:
+    target = _llama_dir(gpu)
     tmp = target.with_name(target.name + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     with zipfile.ZipFile(zip_path) as z:
@@ -253,9 +268,11 @@ def _extract_llama(zip_path: Path) -> Path:
     return target / "llama-server.exe"
 
 
-def download_llama(progress: Progress | None = None, stop: threading.Event | None = None) -> Path:
-    zp = download_file(cat.LLAMA_URL, llama_root() / cat.LLAMA_ZIP.name, cat.LLAMA_ZIP, progress, stop)
-    return _extract_llama(zp)
+def download_llama(progress: Progress | None = None, stop: threading.Event | None = None,
+                   gpu: bool = False) -> Path:
+    zip_spec, url = (cat.LLAMA_VULKAN_ZIP, cat.LLAMA_VULKAN_URL) if gpu else (cat.LLAMA_ZIP, cat.LLAMA_URL)
+    zp = download_file(url, llama_root() / zip_spec.name, zip_spec, progress, stop)
+    return _extract_llama(zp, gpu)
 
 
 def installed_folders() -> list[tuple[str, str, int]]:

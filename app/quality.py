@@ -116,11 +116,22 @@ def visible_chars(text: str) -> int:
     return sum(1 for c in text if not c.isspace() and c not in "|-*#_")
 
 
+# صفحة فاصلة بين المستندات ("مستند رقم (3)" بشريط أسود كبير): نصها القصير سليم رغم كثافة الحبر.
+_DIVIDER_RE = re.compile(
+    r"^(?:ال)?(?:مستند|مرفق|ملحق|وثيقة|حافظة|بند)\s*(?:رقم)?\s*[(\[]?\s*[0-9٠-٩]{1,3}\s*[)\]]?$")
+
+
+def is_divider_text(text: str) -> bool:
+    t = re.sub(r"<!--.*?-->", "", text or "", flags=re.S)
+    t = re.sub(r"[#*_>|\-\s]+", " ", t).strip()
+    return bool(_DIVIDER_RE.match(t))
+
+
 def suspiciously_short(text: str, ink: float | None, fraction: float = SHORT_FRACTION) -> bool:
     n = visible_chars(text)
     if ink is None:
         return n == 0
-    if ink < INK_BLANK:
+    if ink < INK_BLANK or is_divider_text(text):
         return False
     expected = ink * 100 * CHARS_PER_INK_PERCENT
     return n < max(5, expected * fraction)
@@ -189,3 +200,16 @@ def repetition_problem(text: str) -> str | None:
         if n / len(words) > MAX_SHARE and len(top) > 1:
             return f"كلمة واحدة تملأ النص: {top[:20]}"
     return None
+
+
+# ---------------------------------------------------------------- اعتذار النموذج بدل القراءة
+_REFUSAL_RE = re.compile(
+    r"(i('| a)?m (sorry|unable)|i (cannot|can't|can not|am not able)|unable to (read|transcribe|process|extract)|"
+    r"cannot (read|transcribe|process)|can't (read|transcribe)|as an ai|"
+    r"لا (أستطيع|استطيع|يمكنني)|عذراً|عذرا|آسف|اعتذر|لم أتمكن|لا يمكن قراءة)", re.I)
+
+
+def looks_like_refusal(text: str) -> bool:
+    """رد قصير يعتذر عن القراءة ("لا أستطيع قراءة الصورة") لا نص الصفحة: لا يُحفظ كأنه محتوى."""
+    t = (text or "").strip()
+    return 0 < len(t) < 500 and bool(_REFUSAL_RE.search(t))

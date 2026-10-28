@@ -37,7 +37,9 @@ def merged_fragments(state: cp.FileState) -> tuple[dict[int, str], MergeStats]:
     return merge_tables(pages)
 
 
-def build_markdown(state: cp.FileState, source_name: str, clean: bool = False) -> str:
+def build_markdown(state: cp.FileState, source_name: str, clean: bool = False, pages: list[int] | None = None,
+                   part: int = 0) -> str:
+    """pages/part: جزء من الكتاب (ص a–b) بدل الملف كله؛ الدمج بين الأجزاء يعيد بناءه الملف النهائي."""
     n_pages = state.page_count
     merged, _stats = merged_fragments(state)
     if clean:  # ذيل الصفحة المتكرر وأرقام الصفحات وبقايا التوقيع
@@ -45,8 +47,11 @@ def build_markdown(state: cp.FileState, source_name: str, clean: bool = False) -
         merged = strip_page_furniture(merged)
     counts = state.counts()
     done = counts.get(cp.DONE, 0) + counts.get(cp.BLANK, 0) + counts.get(cp.ILLEGIBLE, 0)
+    title = f"# {Path(source_name).stem}"
+    if pages:
+        title += f" — الجزء {part} (ص{pages[0]}–{pages[-1]})"
     out = [
-        f"# {Path(source_name).stem}",
+        title,
         "",
         f"<!-- source: {source_name} | pages: {n_pages} | sha256: {state.file_hash} -->",
     ]
@@ -59,14 +64,14 @@ def build_markdown(state: cp.FileState, source_name: str, clean: bool = False) -
     if engines:
         out.append("<!-- engines: " + " | ".join(f"{e}: {_ranges(p)}" for e, p in engines.items()) + " -->")
     want = len(state.data.get("only_pages") or ()) or n_pages
-    if done < want:
+    if done < want and not pages:
         out.append(f"<!-- incomplete: {done}/{want} -->")
     out.append("")
 
     only = state.data.get("only_pages")
     if only:
         out.insert(3, f"<!-- selected pages: {_ranges(only)} of {n_pages} -->")
-    for n in (only or range(1, n_pages + 1)):
+    for n in (pages or only or range(1, n_pages + 1)):
         status = state.status(n)
         out.append(f"<!-- page:{n} -->")
         out.append(f"**[صفحة {n}]**")
@@ -132,6 +137,46 @@ def _ranges(pages: list[int]) -> str:
     if start is not None:
         parts.append(f"{start}-{prev}" if prev != start else str(start))
     return ",".join(parts)
+
+
+def _page_list(state: cp.FileState) -> list[int]:
+    return list(state.data.get("only_pages") or range(1, state.page_count + 1))
+
+
+def part_path(docs_dir: Path, source_name: str, part: int) -> Path:
+    return Path(docs_dir) / f"{Path(source_name).stem}.part{part:02d}.md"
+
+
+def write_ready_parts(state: cp.FileState, source_name: str, docs_dir: Path, size: int, normalize: bool = True,
+                      clean: bool = False) -> list[Path]:
+    """يكتب كل جزء من `size` صفحة اكتملت صفحاته كلها ولم يُكتب بعد (الجزء المكتوب لا يُلمس ثانية)."""
+    pages = _page_list(state)
+    written = []
+    for i in range(0, len(pages), size):
+        block = pages[i:i + size]
+        target = part_path(docs_dir, source_name, i // size + 1)
+        if target.exists() or any(state.status(n) not in cp.FINAL_STATUSES for n in block):
+            continue
+        write_markdown_file(target, build_markdown(state, source_name, clean, block, i // size + 1), normalize)
+        written.append(target)
+    return written
+
+
+def remove_parts(docs_dir: Path, source_name: str) -> int:
+    """يحذف أجزاء الملف بعد دمجها في الملف النهائي."""
+    n = 0
+    for f in Path(docs_dir).glob(glob_escape(Path(source_name).stem) + ".part[0-9][0-9].md"):
+        try:
+            f.unlink()
+            n += 1
+        except OSError:
+            pass
+    return n
+
+
+def glob_escape(name: str) -> str:
+    import glob
+    return glob.escape(name)
 
 
 def write_markdown(state: cp.FileState, source_name: str, docs_dir: Path, normalize: bool = True,

@@ -25,6 +25,7 @@ class ModelSpec:
     model: FileSpec
     mmproj: FileSpec
     note: str = ""
+    prompt: str = ""    # تعليمة النموذج المضبوط لـ OCR (يتدرّب على تعليمة محددة فلا نرسل له التعليمة العامة)
 
     def url(self, f: FileSpec) -> str:
         return f"https://huggingface.co/{self.repo}/resolve/main/{f.name}"
@@ -35,6 +36,21 @@ class ModelSpec:
 
 
 MODELS: tuple[ModelSpec, ...] = (
+    ModelSpec(
+        "qari-v04-4b", "Qari-OCR v0.4 4B (Q8_0) · للأجهزة القوية", "marwan-osama/Qari-OCR-0.4.0-VL-4B-Instruct-GGUF",
+        FileSpec("Qwen3-VL-4B-Instruct.Q8_0.gguf", 4280406112, "fd8049b56709cc9b531c26a6139a974152c0ff43fbd5fdf8f176fc39a6c07181"),
+        FileSpec("Qwen3-VL-4B-Instruct.F16-mmproj.gguf", 836180224, "f2a4de1e85656d610ed71ffb4952d0c757d52907492615c91e51eb6a7391689e"),
+        "ذكاء اصطناعي مخصّص للعربية (NAMAA-Space على Qwen3-VL-4B). تحويل GGUF من طرف ثالث (marwan-osama) لأن NAMAA تنشر "
+        "adapter فقط. يحتاج ذاكرة ≥ 8GB",
+        "Free OCR.",
+    ),
+    ModelSpec(
+        "qari-v03-2b", "Qari-OCR v0.3 2B (Q8_0) · للأجهزة العادية", "mradermacher/Qari-OCR-0.3-SNAPSHOT-VL-2B-Instruct-merged-GGUF",
+        FileSpec("Qari-OCR-0.3-SNAPSHOT-VL-2B-Instruct-merged.Q8_0.gguf", 1646571616, "8959056864ddce8ff148e5868de03f3b3849065c63efb5e9ad605266a7d5fdcd"),
+        FileSpec("Qari-OCR-0.3-SNAPSHOT-VL-2B-Instruct-merged.mmproj-Q8_0.gguf", 709882976, "946d619bbdee4b13444e275bd190df9294a00f41063088e51b8697924c17246e"),
+        "ذكاء اصطناعي مخصّص للعربية (NAMAA-Space على Qwen2-VL-2B). النسخة هنا SNAPSHOT من mradermacher (merged من v0.3)",
+        "Just return the plain text representation of this document as if you were reading it naturally. Do not hallucinate.",
+    ),
     ModelSpec(
         "qwen3vl-4b", "Qwen3-VL 4B (Q4_K_M)", "Qwen/Qwen3-VL-4B-Instruct-GGUF",
         FileSpec("Qwen3VL-4B-Instruct-Q4_K_M.gguf", 2497281664, "66358cb18bb6b3b1b6675aa412c7a88ef01d228f481184d13668e5201c730a0a"),
@@ -77,7 +93,7 @@ MODELS: tuple[ModelSpec, ...] = (
         "olmocr2-7b", "olmOCR-2 7B (Q4_K_M)", "lmstudio-community/olmOCR-2-7B-1025-GGUF",
         FileSpec("olmOCR-2-7B-1025-Q4_K_M.gguf", 4683072032, "821ed0a31450d7d265bcc05519a28ebb43eb3cd2738ca543fa11b78f35153e25"),
         FileSpec("mmproj-olmOCR-2-7B-1025-F16.gguf", 1354162944, "fe90b9db826810aa37a17b53bd575ee15a9947e9075d73a8f68e284a38ab5eb4"),
-        "مستودع تحويل من طرف ثالث (lmstudio-community)؛ مدرّب أساساً على الإنجليزية",
+        "مستودع تحويل من طرف ثالث (lmstudio-community). مدرّب أساساً على الإنجليزية لكنه أعطى أفضل نتيجة عربية في تجربة المستخدم",
     ),
     ModelSpec(
         "dots-ocr", "dots.ocr (Q8_0)", "ggml-org/dots.ocr-GGUF",
@@ -92,14 +108,24 @@ MODELS: tuple[ModelSpec, ...] = (
     ),
 )
 
-# الترتيب في الإعدادات من الأفضل للأسوأ، حسب التجربة على مذكرة حقيقية (ناسكو، فاكس 100 نقطة، 2026-10-11 —
+# الترتيب في الإعدادات من الأفضل للأسوأ (الترتيب نفسه هو الدليل، فلا أرقام في النصوص)، حسب التجربة على مذكرة حقيقية (ناسكو، فاكس 100 نقطة، 2026-10-11 —
 # التفاصيل في DEVLOG). "paddle" = PaddleOCR. ما لم يُجرَّب يأتي بعد المجرَّب بترتيب الكتالوج.
-RANKING = ("dots-ocr", "qwen3vl-4b", "nanonets-ocr2-3b", "paddle")
+RANKING = ("olmocr2-7b", "qwen3vl-8b", "qari-v04-4b", "dots-ocr", "qwen25vl-7b", "qwen3vl-4b", "nanonets-ocr2-3b",
+           "nanonets-ocr-s", "paddle", "qwen25vl-3b", "qari-v03-2b", "gemma3-4b", "minicpm-v45")
 VERDICTS = {
-    "dots-ocr": "١ · الأدق، بطيء جداً",
-    "qwen3vl-4b": "٢ · أرقام جيدة، كلمات خاطئة أحياناً",
-    "nanonets-ocr2-3b": "٣ · أخطأ في مبلغ وأسقط عبارة",
-    "paddle": "٤ · سريع جداً، مسودة",
+    "olmocr2-7b": "الأقوى في تجاربنا · يبني الجداول بوسوم HTML · يخطئ في بعض الأرقام والكلمات وحذف كلمتين من آية · نحو 6 د/صفحة",
+    "qwen3vl-8b": "مبالغ الجدول كلها صحيحة · يبني جدول Markdown · أخطاء حروف قليلة · نحو 7 د/صفحة (ص4 فقط)",
+    "qari-v04-4b": "عربي متخصص · نص وأرقام جيدة · 5–8 د/صفحة · لا يبني جداول ويخطئ في خلاياها وفي الأختام",
+    "dots-ocr": "الأدق بين المجرَّبة سابقاً · بطيء جداً",
+    "qwen25vl-7b": "جدول Markdown ونص جيد · أخطأ في مبلغ (43000 ← 3000) · نحو 6 د/صفحة",
+    "qwen3vl-4b": "أرقام جيدة · كلمات خاطئة أحياناً",
+    "nanonets-ocr2-3b": "أخطأ في مبلغ وأسقط عبارة",
+    "nanonets-ocr-s": "يبني الجداول لكن مبالغها كلها مشوّهة · نحو 3 د/صفحة",
+    "paddle": "سريع جداً · مسودة فقط",
+    "qwen25vl-3b": "يُسقط أجزاء من الصفحة ويشوّه الأرقام · لا يُنصح به",
+    "qari-v03-2b": "عربي للصفحات النظيفة فقط · يختلق أرقاماً وكلمات في الممسوح · لا يُنصح به",
+    "gemma3-4b": "يشوّه العربية تماماً ويختلق نصاً · لا يُنصح به",
+    "minicpm-v45": "لم يُنتج نصاً في التجربة (تكرار حتى الحد) · لا يُنصح به",
 }
 UNTESTED = "لم يُجرَّب بعد"
 # الأرقام في VERDICTS = الترتيب في التجربة. على معالج i7 بلا كرت: dots ~11 د/صفحة، Qwen3-VL 4B ~5.5، Nanonets ~4.5،
@@ -135,3 +161,10 @@ LLAMA_ZIP = FileSpec(
     "a5b932cb28b2f17da93bf7111c7cbd1324cffa3a6f474aa10b616908868037a2",
 )
 LLAMA_URL = f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_TAG}/{LLAMA_ZIP.name}"
+
+# نسخة Vulkan (33MB): تعمل على كروت NVIDIA وAMD وIntel بلا تنصيب CUDA. اختيارية؛ المعالج هو الافتراضي.
+LLAMA_VULKAN_ZIP = FileSpec(
+    "llama-b11398-bin-win-vulkan-x64.zip", 33304694,
+    "7887bc960d77f01da447436439407759646287250b7b263d01a325ac635fc9ac",
+)
+LLAMA_VULKAN_URL = f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_TAG}/{LLAMA_VULKAN_ZIP.name}"

@@ -68,7 +68,7 @@ class LoopbackOnlyTests(unittest.TestCase):
 
 
 def _fake_cmd(mode):
-    return lambda exe, model, mmproj, port, threads=None, ctx_size=8192: [sys.executable, str(FAKE_SERVER), str(port), mode]
+    return lambda exe, model, mmproj, port, threads=None, ctx_size=8192, gpu=False: [sys.executable, str(FAKE_SERVER), str(port), mode]
 
 
 class ServerLifecycleTests(unittest.TestCase):

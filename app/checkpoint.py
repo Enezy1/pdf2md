@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .fsutil import atomic_write_json, atomic_write_text, read_json
+
+_WRITE_LOCK = threading.RLock()   # مساران يكتبان صفحات نفس الملف معاً (نماذج Gemini المتوازية) لا يتداخلان
 
 log = logging.getLogger(__name__)
 
@@ -84,17 +87,19 @@ class FileState:
         return {k: v for k, v in p.items() if k in ("info", "qv", "converted_reason", "clip", "photos")}
 
     def update_meta(self, n: int, **extra) -> None:
-        p = self.data["pages"].get(str(n))
-        if p is None:
-            return
-        p.update(extra)
-        self.data["updated"] = _now()
-        atomic_write_json(self.json_path, self.data)
+        with _WRITE_LOCK:
+            p = self.data["pages"].get(str(n))
+            if p is None:
+                return
+            p.update(extra)
+            self.data["updated"] = _now()
+            atomic_write_json(self.json_path, self.data)
 
     def flush(self) -> None:
         """حفظ تعديلات مباشرة على data (مثل درجات الجودة لعدة صفحات دفعة واحدة)."""
-        self.data["updated"] = _now()
-        atomic_write_json(self.json_path, self.data)
+        with _WRITE_LOCK:
+            self.data["updated"] = _now()
+            atomic_write_json(self.json_path, self.data)
 
     def providers_summary(self) -> dict[str, list[int]]:
         """{المزوّد: [الصفحات]} للصفحات التي عالجها مزوّد خارجي."""
@@ -123,13 +128,14 @@ class FileState:
         return self.pages_dir / f"p{n:04d}.s{k:03d}.png"
 
     def save_page(self, n: int, status: str, method: str, markdown: str = "", **extra) -> None:
-        if markdown:
-            atomic_write_text(self.fragment_path(n), markdown)
-        else:
-            self.fragment_path(n).unlink(missing_ok=True)
-        self.data["pages"][str(n)] = {"status": status, "method": method, "updated": _now(), **extra}
-        self.data["updated"] = _now()
-        atomic_write_json(self.json_path, self.data)
+        with _WRITE_LOCK:
+            if markdown:
+                atomic_write_text(self.fragment_path(n), markdown)
+            else:
+                self.fragment_path(n).unlink(missing_ok=True)
+            self.data["pages"][str(n)] = {"status": status, "method": method, "updated": _now(), **extra}
+            self.data["updated"] = _now()
+            atomic_write_json(self.json_path, self.data)
 
     def counts(self) -> dict[str, int]:
         c: dict[str, int] = {}
@@ -146,6 +152,19 @@ class FileState:
             if code:
                 c[code] = c.get(code, 0) + 1
         return c
+
+
+def progress(state_dir: Path, file_hash: str) -> tuple[int, int] | None:
+    """(صفحات منتهية، المطلوبة) لملف عولج جزئياً سابقاً، أو None إن لم يبدأ. قراءة فقط."""
+    try:
+        data = read_json(Path(state_dir) / f"{file_hash}.json")
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not data or data.get("version") != STATE_VERSION:
+        return None
+    want = data.get("only_pages") or range(1, data.get("page_count", 0) + 1)
+    done = sum(1 for n in want if (data["pages"].get(str(n)) or {}).get("status") in FINAL_STATUSES)
+    return (done, len(want)) if done else None
 
 
 def reset_file(state_dir: Path, file_hash: str) -> bool:

@@ -58,7 +58,7 @@ def free_port() -> int:
 
 
 def server_command(exe: Path, model: Path, mmproj: Path, port: int, threads: int | None = None,
-                   ctx_size: int = 8192) -> list[str]:
+                   ctx_size: int = 8192, gpu: bool = False) -> list[str]:
     cmd = [
         str(exe), "-m", str(model), "--mmproj", str(mmproj),
         "--host", LOOPBACK, "--port", str(port),
@@ -66,6 +66,8 @@ def server_command(exe: Path, model: Path, mmproj: Path, port: int, threads: int
     ]
     if threads:
         cmd += ["--threads", str(threads)]
+    if gpu:
+        cmd += ["--n-gpu-layers", "99"]   # كل الطبقات على الكرت؛ ما لا يتسع في ذاكرته يبقى على المعالج
     return cmd
 
 
@@ -119,10 +121,11 @@ class LlamaServer:
     """يشغّل llama-server ويغلقه. استخدمه مع with."""
 
     def __init__(self, exe: Path, model: Path, mmproj: Path, log_dir: Path, threads: int | None = None,
-                 startup_timeout: float = 600):
+                 startup_timeout: float = 600, gpu: bool = False):
         self.exe, self.model, self.mmproj = Path(exe), Path(model), Path(mmproj)
         self.log_path = Path(log_dir) / "llama-server.log"
         self.threads = threads
+        self.gpu = gpu
         self.startup_timeout = startup_timeout
         self.proc: subprocess.Popen | None = None
         self.port: int | None = None
@@ -140,7 +143,7 @@ class LlamaServer:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         for attempt in range(3):  # المنفذ قد يُحجز بين اختياره والتشغيل
             self.port = free_port()
-            cmd = server_command(self.exe, self.model, self.mmproj, self.port, self.threads)
+            cmd = server_command(self.exe, self.model, self.mmproj, self.port, self.threads, gpu=self.gpu)
             log.info("تشغيل llama-server على %s", self.base_url)
             logf = open(self.log_path, "ab")
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -226,12 +229,13 @@ class LocalLlamaProvider(Provider):
     is_external = False
 
     def __init__(self, base_url: str, name: str = "local", server: LlamaServer | None = None,
-                 timeout: float = 900, max_tokens: int = 4096):
+                 timeout: float = 900, max_tokens: int = 4096, prompt: str = ""):
         self.base_url = check_loopback_url(base_url)
         self.name = name
         self.server = server
         self.timeout = timeout
         self.max_tokens = max_tokens
+        self.prompt = prompt    # تعليمة نموذج مضبوط (Qari…): تحلّ محل PROMPT ولا يُلحق بها سياق الصفحة السابقة
 
     def _post(self, path: str, body: dict) -> dict:
         url = check_loopback_url(self.base_url) + path  # تحقق ثانٍ قبل كل طلب
@@ -248,8 +252,8 @@ class LocalLlamaProvider(Provider):
     def ocr(self, request: OcrRequest) -> list[PageResult]:
         results = []
         for img in request.images:
-            text = PROMPT
-            if request.previous_tail:
+            text = self.prompt or PROMPT
+            if request.previous_tail and not self.prompt:
                 text += "\n\nFor context only (do not repeat), the previous page ended with:\n" + request.previous_tail
             content = [
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(img.png).decode()}},
@@ -258,10 +262,12 @@ class LocalLlamaProvider(Provider):
             t0 = time.monotonic()
             data = self._post("/v1/chat/completions", {
                 "messages": [{"role": "user", "content": content}],
-                "temperature": 0, "max_tokens": self.max_tokens, "stream": False,
+                # إعادة بعد حلقة تكرار: حرارة وعقوبة أقوى وسقف أقصر ليفشل سريعاً
+                "temperature": 0.2 * request.attempt, "max_tokens": self.max_tokens if not request.attempt else 2048,
+                "stream": False,
                 # DRY: يعاقب تكرار نفس التسلسل (حلقات "ملا ملا ملا") دون إفساد التكرار الطبيعي القصير
-                "dry_multiplier": 0.8, "dry_base": 1.75, "dry_allowed_length": 3,
-                "repeat_penalty": 1.05, "repeat_last_n": 128,
+                "dry_multiplier": 0.8 + 0.6 * request.attempt, "dry_base": 1.75, "dry_allowed_length": 3,
+                "repeat_penalty": 1.05 + 0.05 * request.attempt, "repeat_last_n": 128,
             })
             md = _strip_fence(data["choices"][0]["message"]["content"] or "")
             meta = {"seconds": round(time.monotonic() - t0, 1), "dpi": img.dpi,
@@ -285,11 +291,21 @@ def _strip_fence(s: str) -> str:
 
 
 def start_local_provider(exe: Path, model: Path, mmproj: Path, log_dir: Path, name: str,
-                         stop: threading.Event | None = None, threads: int | None = None) -> LocalLlamaProvider:
-    server = LlamaServer(exe, model, mmproj, log_dir, threads)
-    url = server.start(stop)
+                         stop: threading.Event | None = None, threads: int | None = None,
+                         prompt: str = "", gpu: bool = False, fallback_exe: Path | None = None) -> LocalLlamaProvider:
+    """gpu=True: exe هو نسخة Vulkan. إن فشل تشغيلها (درايفر ناقص، ذاكرة الكرت لا تكفي) يُعاد بنسخة المعالج fallback_exe."""
+    server = LlamaServer(exe, model, mmproj, log_dir, threads, gpu=gpu)
     try:
-        return LocalLlamaProvider(url, name=name, server=server)
+        url = server.start(stop)
+    except EngineUnavailable as e:
+        server.close()
+        if not (gpu and fallback_exe) or (stop is not None and stop.is_set()):
+            raise
+        log.warning("تعذّر تشغيل المحرّك على كرت الشاشة، يُستعمل المعالج: %s", str(e)[:300])
+        server = LlamaServer(fallback_exe, model, mmproj, log_dir, threads)
+        url = server.start(stop)
+    try:
+        return LocalLlamaProvider(url, name=name, server=server, prompt=prompt)
     except Exception:
         server.close()
         raise
