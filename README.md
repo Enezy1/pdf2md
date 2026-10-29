@@ -140,12 +140,12 @@
 
 يُنزَّل الملف من صفحة الإصدارات، ثم يُشغَّل مباشرة. لا يحتاج بايثون ولا تثبيت أي شيء.
 
-  https://github.com/tch333-byte/pdf2md/releases
+  https://github.com/Enezy1/pdf2md/releases
 
 ### من المصدر
 
 ```powershell
-git clone https://github.com/tch333-byte/pdf2md.git
+git clone https://github.com/Enezy1/pdf2md.git
 cd pdf2md
 
 python -m venv .venv
