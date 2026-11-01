@@ -1,0 +1,92 @@
+# بناء الملف التنفيذي والتحقق من مصدره
+#
+# التشغيل:
+#   - عند دفع وسم بصيغة v* (مثل v1.0.1) يبني الملف وينشئ الإصدار تلقائياً.
+#   - أو يدوياً من صفحة Actions (workflow_dispatch) للتجربة بدون نشر.
+#
+# ما يفعله هذا الملف:
+#   1) يبني pdf2md.exe على windows-latest من نفس ملفات المستودع.
+#   2) يحسب بصمة SHA256 ويحفظها في SHA256SUMS.txt.
+#   3) ينشئ "إثبات مصدر البناء" (build provenance attestation) عبر Sigstore.
+#      هذا يربط الملف التنفيذي بالـ commit الذي بُني منه، ويتيح لأي شخص التحقق منه.
+#   4) عند الدفع بوسم، ينشر الملف والبصمة كإصدار جديد.
+#
+# لا يوجد سر (secret) داخل المستودع، ولا يحتاج هذا الملف أي مفتاح من المستخدم.
+
+name: Build and release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  attestations: write
+  id-token: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build on Windows
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Get the source code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build the executable
+        run: python -m PyInstaller pdf2md.spec --noconfirm --clean
+
+      - name: Compute SHA256
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash 'dist\pdf2md.exe' -Algorithm SHA256).Hash
+          "$hash  pdf2md.exe" | Out-File -FilePath 'SHA256SUMS.txt' -Encoding ascii
+          Write-Output "SHA256SUMS.txt:"
+          Get-Content 'SHA256SUMS.txt'
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/pdf2md.exe'
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf2md-windows
+          path: |
+            dist/pdf2md.exe
+            SHA256SUMS.txt
+          retention-days: 30
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "pdf2md $tag" --generate-notes
+          }
+          gh release upload $tag 'dist/pdf2md.exe' 'SHA256SUMS.txt' --clobber
