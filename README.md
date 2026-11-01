@@ -1,5 +1,7 @@
 # pdf2md
 
+![Build](https://github.com/Enezy1/pdf2md/actions/workflows/release.yml/badge.svg)
+
 **تحويل ملفات PDF إلى Markdown — مع العربية أولاً**
 
 > برنامج لويندوز يحوّل ملفات PDF — ولا سيما العربية — إلى نص Markdown منظَّم، يمكن كتابة تقرير منه مباشرة دون الرجوع إلى الملف الأصلي.

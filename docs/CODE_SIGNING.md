@@ -74,11 +74,15 @@ certutil -hashfile pdf2md.exe SHA256
 gh attestation verify pdf2md.exe --repo Enezy1/pdf2md
 ```
 
-النتيجة الصحيحة تحتوي جملة `Good!` ومعها رابط إثبات قابل للضغط والتحقق منه على GitHub.
+النتيجة الصحيحة: الأمر ينتهي برمز نجاح (0) ويعرض رابط الإثبات على GitHub.
 
-### الطريقة الثالثة: التحقق من داخل GitHub
+### الطريقة الثالثة: التحقق من صفحة البناء على GitHub
 
-اذهب إلى صفحة الـ commit الذي بُني منه الإصدار، ثم إلى تبويب **Attestations**، وتأكد أن هناك إثباتاً يشير إلى نفس البصمة.
+افتح صفحة التشغيل في Actions، وتأكد من ثلاثة أشياء:
+
+- خطوة **Attest build provenance** لازم تكون خضراء (success).
+- في قسم **Artifacts** ملف `pdf2md-windows` وفيه `pdf2md.exe` و`SHA256SUMS.txt`.
+- رقم الـ commit اللي بُني منه الملف (Build provenance) هو نفسه اللي يظهر في رابط الإثبات.
 
 ## الاستضافة
 
