@@ -1,17 +1,20 @@
-# بناء الملف التنفيذي والتحقق من مصدره
+# بناء الملف التنفيذي والمثبّت، وتوقيعهما، والتحقق من مصدرهما
 #
 # التشغيل:
-#   - عند دفع وسم بصيغة v* (مثل v1.0.1) يبني الملف وينشئ الإصدار تلقائياً.
+#   - عند دفع وسم بصيغة v* (مثل v1.0.2) يبني الملف والمثبّت وينشئ الإصدار تلقائياً.
 #   - أو يدوياً من صفحة Actions (workflow_dispatch) للتجربة بدون نشر.
 #
 # ما يفعله هذا الملف:
 #   1) يبني pdf2md.exe على windows-latest من نفس ملفات المستودع.
-#   2) يحسب بصمة SHA256 ويحفظها في SHA256SUMS.txt.
-#   3) ينشئ "إثبات مصدر البناء" (build provenance attestation) عبر Sigstore.
-#      هذا يربط الملف التنفيذي بالـ commit الذي بُني منه، ويتيح لأي شخص التحقق منه.
-#   4) عند الدفع بوسم، ينشر الملف والبصمة كإصدار جديد.
+#   2) يوقّع الملف عبر SignPath (إن كانت أسرار التوقيع موجودة) ثم يبني المثبّت
+#      من الملف الموقّع، ثم يوقّع المثبّت أيضاً — فالمثبّت يحمل برنامجاً موقّعاً.
+#   3) يحسب بصمة SHA256 لكلا الملفين ويحفظها في SHA256SUMS.txt.
+#   4) ينشئ "إثبات مصدر البناء" (build provenance attestation) عبر Sigstore.
+#      هذا يربط الملفات بالـ commit الذي بُنيت منه، ويتيح لأي شخص التحقق منها.
+#   5) عند الدفع بوسم، ينشر الملف والمثبّت والبصمة كإصدار جديد.
 #
 # لا يوجد سر (secret) داخل المستودع، ولا يحتاج هذا الملف أي مفتاح من المستخدم.
+# التوقيع اختياري: إن لم تُضبط أسرار SignPath، يُنشر كل شيء بدون توقيع (كحال v1.0.0 و v1.0.1).
 
 name: Build and release
 
@@ -25,6 +28,7 @@ permissions:
   contents: write
   attestations: write
   id-token: write
+  actions: read  # SignPath يقرأ ملفات البناء من هذا التشغيل
 
 concurrency:
   group: build-${{ github.ref }}
@@ -53,21 +57,169 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Read app version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path 'app\__init__.py' -Pattern '__version__\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Output "app version: $v"
+
       - name: Build the executable
         run: python -m PyInstaller pdf2md.spec --noconfirm --clean
 
+      # ------------------------------------------------------------ التوقيع
+      - name: Check code signing configuration
+        id: signing
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $missing = @()
+          if (-not $env:SIGNPATH_API_TOKEN) { $missing += 'secret SIGNPATH_API_TOKEN' }
+          if (-not $env:SIGNPATH_ORGANIZATION_ID) { $missing += 'variable SIGNPATH_ORGANIZATION_ID' }
+          if (-not $env:SIGNPATH_PROJECT_SLUG) { $missing += 'variable SIGNPATH_PROJECT_SLUG' }
+          if (-not $env:SIGNPATH_SIGNING_POLICY_SLUG) { $missing += 'variable SIGNPATH_SIGNING_POLICY_SLUG' }
+          if ($missing.Count -eq 0) {
+            'enabled=true' >> $env:GITHUB_OUTPUT
+            Write-Host 'SignPath مفعّل — سيُوقَّع الملف والمثبّت.'
+          } else {
+            'enabled=false' >> $env:GITHUB_OUTPUT
+            Write-Host ("التوقيع غير مفعّل (ناقص: " + ($missing -join '، ') + ") — سيُنشر كل شيء بدون توقيع.")
+          }
+
+      - name: Upload unsigned executable for signing
+        id: upload-app
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-unsigned-pdf2md
+          path: dist/pdf2md.exe
+          archive: false
+          retention-days: 1
+          overwrite: true
+
+      - name: Sign the executable (SignPath)
+        if: steps.signing.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-app
+
+      - name: Use the signed executable
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $signed = 'signed-app\pdf2md.exe'
+          if (-not (Test-Path $signed)) { throw "الملف الموقّع غير موجود: $signed" }
+          Copy-Item $signed 'dist\pdf2md.exe' -Force
+          Write-Host 'استُبدل الملف التنفيذي بالنسخة الموقّعة.'
+
+      # ------------------------------------------------------------ المثبّت
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress --limit-output
+
+      - name: Build the installer
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = @(
+            'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
+            'C:\Program Files\Inno Setup 6\ISCC.exe'
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { throw 'Inno Setup غير موجود على المشغّل' }
+          # البناء في مجلّد مؤقّت: أحياناً يقفل مكافح الفيروسات الملف الناتج في dist (رمز 110)
+          $out = Join-Path $env:TEMP 'pdf2md-installer-out'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          $exe = (Resolve-Path 'dist\pdf2md.exe').Path
+          $ok = $false
+          for ($i = 1; $i -le 3 -and -not $ok; $i++) {
+            & $iscc "/DPdf2mdExe=$exe" "/DOutputDir=$out" "/DAppVersion=$env:APP_VERSION" 'installer\pdf2md.iss'
+            $ok = ($LASTEXITCODE -eq 0) -and (Test-Path (Join-Path $out 'pdf2md-Setup.exe'))
+            if (-not $ok) { Write-Host "محاولة بناء المثبّت فشلت ($i/3) — إعادة المحاولة" ; Start-Sleep -Seconds 10 }
+          }
+          if (-not $ok) { throw 'فشل بناء المثبّت بعد 3 محاولات' }
+          Copy-Item (Join-Path $out 'pdf2md-Setup.exe') 'dist\pdf2md-Setup.exe' -Force
+          Get-Item 'dist\pdf2md-Setup.exe' | Select-Object Name, Length
+
+      - name: Upload unsigned installer for signing
+        id: upload-setup
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-unsigned-pdf2md-setup
+          path: dist/pdf2md-Setup.exe
+          archive: false
+          retention-days: 1
+          overwrite: true
+
+      - name: Sign the installer (SignPath)
+        if: steps.signing.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-setup
+
+      - name: Use the signed installer
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $signed = 'signed-setup\pdf2md-Setup.exe'
+          if (-not (Test-Path $signed)) { throw "المثبّت الموقّع غير موجود: $signed" }
+          Copy-Item $signed 'dist\pdf2md-Setup.exe' -Force
+          Write-Host 'استُبدل المثبّت بالنسخة الموقّعة.'
+
+      - name: Verify Authenticode signatures
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($f in @('dist\pdf2md.exe', 'dist\pdf2md-Setup.exe')) {
+            $s = Get-AuthenticodeSignature -LiteralPath $f
+            Write-Host ("{0}: {1} ({2})" -f $f, $s.Status, $s.SignerCertificate.Subject)
+            if ($s.Status -ne 'Valid') { throw "توقيع غير صالح: $f" }
+          }
+
+      # ------------------------------------------------------------ البصمات والإثبات
       - name: Compute SHA256
         shell: pwsh
         run: |
-          $hash = (Get-FileHash 'dist\pdf2md.exe' -Algorithm SHA256).Hash
-          "$hash  pdf2md.exe" | Out-File -FilePath 'SHA256SUMS.txt' -Encoding ascii
-          Write-Output "SHA256SUMS.txt:"
-          Get-Content 'SHA256SUMS.txt'
+          $ErrorActionPreference = 'Stop'
+          $lines = @()
+          foreach ($f in @('dist\pdf2md.exe', 'dist\pdf2md-Setup.exe')) {
+            $hash = (Get-FileHash $f -Algorithm SHA256).Hash
+            $lines += "$hash  $(Split-Path $f -Leaf)"
+            Write-Output "$hash  $(Split-Path $f -Leaf)"
+          }
+          $lines | Out-File -FilePath 'SHA256SUMS.txt' -Encoding ascii
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: 'dist/pdf2md.exe'
+          subject-path: |
+            dist/pdf2md.exe
+            dist/pdf2md-Setup.exe
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -75,6 +227,7 @@ jobs:
           name: pdf2md-windows
           path: |
             dist/pdf2md.exe
+            dist/pdf2md-Setup.exe
             SHA256SUMS.txt
           retention-days: 30
 
@@ -83,10 +236,26 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          SIGNED: ${{ steps.signing.outputs.enabled == 'true' }}
+          APP_VERSION: ${{ steps.ver.outputs.version }}
         run: |
+          $ErrorActionPreference = 'Stop'
           $tag = '${{ github.ref_name }}'
+          $body = @"
+          ### pdf2md $tag
+
+          - **مثبّت** (`pdf2md-Setup.exe`): تثبيت لكل مستخدم بلا صلاحيات إدارية، ومدخل في لوحة التحكم ← البرامج مع مزيل، واختصارات في قائمة ابدأ.
+          - **ملف محمول** (`pdf2md.exe`): بلا تثبيت، شغّله مباشرة.
+
+          بصمة SHA256 لكلا الملفين في `SHA256SUMS.txt` المرفق.
+          "@
+          if ($env:SIGNED -eq 'true') {
+            $body += "`nFree code signing provided by SignPath.io, certificate by SignPath Foundation."
+          }
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title "pdf2md $tag" --generate-notes
+            gh release create $tag --title "pdf2md $tag" --notes $body
+          } else {
+            gh release edit $tag --notes $body
           }
-          gh release upload $tag 'dist/pdf2md.exe' 'SHA256SUMS.txt' --clobber
+          gh release upload $tag 'dist\pdf2md.exe' 'dist\pdf2md-Setup.exe' 'SHA256SUMS.txt' --clobber
