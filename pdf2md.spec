@@ -17,6 +17,7 @@ hidden = [m for m in collect_submodules("app") if not m.endswith("paddle_worker"
 
 datas = [
     (str(ROOT / "resources"), "resources"),
+    (str(ROOT / "assets"), "assets"),  # الشعار وأيقونة النافذة
     (str(ROOT / "app" / "paddle_worker.py"), "app"),
 ]
 datas += collect_data_files("customtkinter")
@@ -42,6 +43,7 @@ exe = EXE(
     exclude_binaries=True,
     name="pdf2md",
     console=False,
+    icon=str(ROOT / "assets" / "pdf2md.ico"),
     upx=False,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="pdf2md", upx=False)
@@ -55,6 +57,7 @@ onefile = EXE(
     [],
     name="pdf2md",
     console=False,
+    icon=str(ROOT / "assets" / "pdf2md.ico"),
     upx=False,
     runtime_tmpdir=None,
 )

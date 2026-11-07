@@ -39,6 +39,9 @@ log = logging.getLogger(__name__)
 
 OUTPUT_NAME = "_markdown"
 
+# ملفات العلامة (الشعار وأيقونة النافذة). تُحزَّم بجوار البرنامج مثل resources.
+ASSETS = Path(__file__).resolve().parents[2] / "assets"
+
 STATUS_LABELS = {
     "done": "نص", "blank": "فارغة", "pending_engine": "بانتظار المحرّك", "error": "خطأ",
     "needs_review": "بانتظار المراجعة", "illegible": "غير مقروء", "unreliable": "غير موثوق", "todo": "لم تُعالج",
@@ -170,6 +173,7 @@ class MainWindow:
         self._run = {"t0": 0.0, "done": set(), "total": 0, "stage": "", "files": 0}
 
         theme.apply(root, self.settings.theme, self.settings.palette)
+        self._set_window_icon()
         root.title(f"pdf2md {__version__}")  # شريط عنوان ويندوز لا يحترم RLE في النص المختلط
         theme.fit_window(root, px(900), px(760), px(720), px(560))
         self._build()
@@ -187,6 +191,15 @@ class MainWindow:
         theme.bind_key(root, 188, self.open_settings)              # Ctrl+,
         if self.settings.last_folder and Path(self.settings.last_folder).is_dir():
             self._load_folder(Path(self.settings.last_folder))
+
+    def _set_window_icon(self) -> None:
+        """أيقونة النافذة في شريط العنوان وشريط المهام (ويندوز). تُتجاهل بهدوء إن لم تتوفر."""
+        try:
+            ico = ASSETS / "pdf2md.ico"
+            if ico.exists():
+                self.root.iconbitmap(default=str(ico))
+        except Exception:
+            log.debug("تعذّر ضبط أيقونة النافذة", exc_info=True)
 
     # ------------------------------------------------------------ البناء
     def _var(self, name: str, factory):
@@ -215,10 +228,22 @@ class MainWindow:
         head.pack_propagate(False)
         ui.Btn(head, "", self.open_settings, icon=ui.ICON["settings"], min_width=38).pack(
             side="right", padx=(0, pad))  # الإعدادات (Ctrl+,)
-        logo = ctk.CTkFrame(head, width=38, height=38, corner_radius=11, fg_color=t["accent"])
-        logo.pack(side="left", padx=(pad, 0), pady=px(10))
-        tk.Label(logo, text=ui.ICON["layers"], font=ui._tkfont(20, icons=True), foreground=t["on_accent"],
-                 background=t["accent"], borderwidth=0).place(relx=0.5, rely=0.5, anchor="center")
+        # الشعار: صورة assets/logo.png بمقاس البكسل الفعلي (يتبع تكبير الشاشة).
+        # نستخدم tk.Label لا CTkLabel لأن الأخير يعصر الصورة داخل إطاره.
+        self._logo_photo = None
+        try:
+            from PIL import Image, ImageTk
+            size = px(38)
+            pil = Image.open(ASSETS / "logo.png").convert("RGBA").resize((size, size), Image.LANCZOS)
+            self._logo_photo = ImageTk.PhotoImage(pil)
+            tk.Label(head, image=self._logo_photo, bd=0, background=t["card"]).pack(
+                side="left", padx=(pad, 0), pady=px(10))
+        except Exception:
+            log.warning("تعذّر تحميل الشعار — يُستخدم المربع المرسوم", exc_info=True)
+            logo = ctk.CTkFrame(head, width=38, height=38, corner_radius=11, fg_color=t["accent"])
+            logo.pack(side="left", padx=(pad, 0), pady=px(10))
+            tk.Label(logo, text=ui.ICON["layers"], font=ui._tkfont(20, icons=True), foreground=t["on_accent"],
+                     background=t["accent"], borderwidth=0).place(relx=0.5, rely=0.5, anchor="center")
         tk.Label(head, text=f"pdf2md", font=ui._tkfont(22, "bold"), foreground=t["fg"], background=t["card"],
                  borderwidth=0).pack(side="left", padx=px(S3))
         tk.Label(head, text=f"v{__version__}", font=("Consolas", -px(12)), foreground=t["muted"],

@@ -1,5 +1,7 @@
 # pdf2md
 
+<p align="center"><img src="assets/logo.png" alt="شعار pdf2md" width="150"></p>
+
 ![Build](https://github.com/Enezy1/pdf2md/actions/workflows/release.yml/badge.svg)
 
 **تحويل ملفات PDF إلى Markdown — مع العربية أولاً**
