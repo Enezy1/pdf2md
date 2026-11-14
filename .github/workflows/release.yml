@@ -317,9 +317,10 @@ jobs:
 
       - name: Compute SHA256
         run: |
-          shasum -a 256 "dist/pdf2md-macos-${{ matrix.arch }}.dmg" "dist/pdf2md-macos-${{ matrix.arch }}.zip" \
-            > "dist/SHA256SUMS-macos-${{ matrix.arch }}.txt"
-          cat "dist/SHA256SUMS-macos-${{ matrix.arch }}.txt"
+          cd dist
+          shasum -a 256 "pdf2md-macos-${{ matrix.arch }}.dmg" "pdf2md-macos-${{ matrix.arch }}.zip" \
+            > "SHA256SUMS-macos-${{ matrix.arch }}.txt"
+          cat "SHA256SUMS-macos-${{ matrix.arch }}.txt"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
