@@ -17,9 +17,48 @@ from pathlib import Path
 
 import pymupdf as fitz
 
-FONTS = fitz.Archive("C:/Windows/Fonts")
-CSS = "@font-face {font-family: ar; src: url(arial.ttf);} p {font-family: ar; font-size: 15px; line-height: 1.6;}"
+# الخط العربي للملفات التجريبية: يختلف مكانه بين الأنظمة.
+# نبحث عن أول ملف موجود فعلاً؛ إن لم نجده يبقى ARABIC_FONT_AVAILABLE = False
+# وتُتخطّى الاختبارات التي تحتاج نصاً عربياً مرسوماً.
+_FONT_CANDIDATES = (
+    ("C:/Windows/Fonts", "arial.ttf"),                        # ويندوز
+    ("/System/Library/Fonts/Supplemental", "Arial Unicode.ttf"),  # ماك
+    ("/System/Library/Fonts/Supplemental", "Arial.ttf"),
+    ("/Library/Fonts", "Arial Unicode.ttf"),
+    ("/System/Library/Fonts", "GeezaPro.ttc"),
+    ("/usr/share/fonts/truetype/dejavu", "DejaVuSans.ttf"),   # لينكس
+)
+
+def _renders_arabic(path: Path) -> bool:
+    """هل في الخط محارف عربية فعلاً؟ بعض الخطوط اللاتينية على ماك لا تحوي حروفاً عربية."""
+    try:
+        return bool(fitz.Font(fontfile=str(path)).has_glyph(ord("ع")))
+    except Exception:
+        return False
+
+
+_font_dir, _font_file = "", ""
+for _d, _f in _FONT_CANDIDATES:
+    _p = Path(_d) / _f
+    if _p.is_file() and _renders_arabic(_p):
+        _font_dir, _font_file = _d, _f
+        break
+
+ARABIC_FONT_AVAILABLE = bool(_font_dir)
+ARABIC_FONT = str(Path(_font_dir) / _font_file) if _font_dir else ""
+
+FONTS = fitz.Archive(_font_dir) if _font_dir else None
+CSS = ("@font-face {font-family: ar; src: url(%s);} p {font-family: ar; font-size: 15px; line-height: 1.6;}"
+       % _font_file) if _font_dir else "p {font-size: 15px; line-height: 1.6;}"
 RECT = fitz.Rect(60, 70, 535, 780)
+
+
+def _html(page: fitz.Page, rect, html: str, css: str = CSS) -> None:
+    """insert_htmlbox مع أرشيف الخطوط حين يتوفّر."""
+    if FONTS is not None:
+        page.insert_htmlbox(rect, html, css=css, archive=FONTS)
+    else:
+        page.insert_htmlbox(rect, html, css=css)
 
 TEXT = """
 <p dir="rtl">عقد إيجار — نموذج تجريبي غير حقيقي</p>
@@ -33,7 +72,7 @@ TEXT = """
 
 def _text_page(doc: fitz.Document, html: str) -> fitz.Page:
     page = doc.new_page()
-    page.insert_htmlbox(RECT, html, css=CSS, archive=FONTS)
+    _html(page, RECT, html)
     return page
 
 
@@ -62,7 +101,8 @@ def build(path: Path) -> Path:
 
 
 # ---------------------------------------------------------------- جداول عربية (من اليمين لليسار)
-CELL_CSS = "@font-face {font-family: ar; src: url(arial.ttf);} p {font-family: ar; font-size: 11px; margin: 0;}"
+CELL_CSS = ("@font-face {font-family: ar; src: url(%s);} p {font-family: ar; font-size: 11px; margin: 0;}"
+            % _font_file) if _font_dir else "p {font-size: 11px; margin: 0;}"
 TABLE_HEADER = ["م", "البيان", "التاريخ", "المبلغ (د.ك)"]       # من اليمين لليسار
 TABLE_WIDTHS = [30, 190, 90, 100]
 TABLE_ROWS_1 = [["١", "قسط الإيجار الأول", "2025/03/16", "1,250.500"],
@@ -81,8 +121,8 @@ def rtl_table(page: fitz.Page, top: float, rows: list[list[str]], widths: list[f
         for text, w in zip(row, widths):
             r = fitz.Rect(x - w, y, x, y + row_h)
             page.draw_rect(r, color=(0, 0, 0), width=0.7)
-            page.insert_htmlbox(r + (4, 5, -4, -2), f'<p dir="rtl" style="text-align:right">{text}</p>',
-                                css=CELL_CSS, archive=FONTS)
+            _html(page, r + (4, 5, -4, -2),
+                  f'<p dir="rtl" style="text-align:right">{text}</p>', css=CELL_CSS)
             x -= w
         y += row_h
     return y
@@ -93,14 +133,13 @@ def build_tables(path: Path) -> Path:
     ثم فقرة. صفحة 3: جدول بعدد أعمدة مختلف (3)."""
     doc = fitz.open()
     p1 = doc.new_page()
-    p1.insert_htmlbox(fitz.Rect(60, 60, 535, 120), '<p dir="rtl">كشف الدفعات المستحقة على المستأجر</p>',
-                      css=CSS, archive=FONTS)
+    _html(p1, fitz.Rect(60, 60, 535, 120), '<p dir="rtl">كشف الدفعات المستحقة على المستأجر</p>')
     rtl_table(p1, 130, [TABLE_HEADER] + TABLE_ROWS_1, TABLE_WIDTHS)
     p1.insert_text((290, 820), "1", fontsize=9)                       # رقم صفحة
     p2 = doc.new_page()
     bottom = rtl_table(p2, 60, [TABLE_HEADER] + TABLE_ROWS_2, TABLE_WIDTHS)
-    p2.insert_htmlbox(fitz.Rect(60, bottom + 20, 535, bottom + 80),
-                      '<p dir="rtl">وقد تم سداد جميع الدفعات المذكورة أعلاه.</p>', css=CSS, archive=FONTS)
+    _html(p2, fitz.Rect(60, bottom + 20, 535, bottom + 80),
+          '<p dir="rtl">وقد تم سداد جميع الدفعات المذكورة أعلاه.</p>')
     p3 = doc.new_page()
     rtl_table(p3, 60, [["الطرف", "الصفة", "العنوان"], ["أحمد علي", "مؤجر", "الكويت"],
                        ["فاطمة حسن", "مستأجر", "حولي"]], [120, 120, 150])

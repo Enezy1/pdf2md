@@ -295,6 +295,9 @@ jobs:
           pip install pyinstaller
           pip install pytest    # للاختبارات قبل البناء
 
+      - name: Report the Arabic font used for the sample PDFs
+        run: python -c "import sys; sys.path.insert(0, 'tools'); import make_sample_pdf as m; print('ARABIC_FONT:', m.ARABIC_FONT or '(none found)'); print('available:', m.ARABIC_FONT_AVAILABLE)"
+
       - name: Run the test suite
         run: python -m pytest tests/ -q
 

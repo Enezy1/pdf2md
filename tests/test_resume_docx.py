@@ -23,7 +23,10 @@ from app.config import Settings  # noqa: E402
 from app.docx_out import markdown_to_docx_bytes  # noqa: E402
 from app.hashing import HashCache  # noqa: E402
 from app.pipeline import BatchContext, Job, run_batch  # noqa: E402
-from make_sample_pdf import build  # noqa: E402
+from make_sample_pdf import ARABIC_FONT_AVAILABLE, build  # noqa: E402
+
+if not ARABIC_FONT_AVAILABLE:
+    raise unittest.SkipTest("لا يوجد خط عربي (Arial) في هذا النظام — تُتخطّى اختبارات النص العربي المرسوم")
 
 
 class CrashResumeTests(unittest.TestCase):

@@ -27,7 +27,10 @@ from app.file_options import FileOptions  # noqa: E402
 from app.quality import detect_reversed_letters  # noqa: E402
 from app.pipeline import BatchContext, Job, run_batch  # noqa: E402
 from app.providers.base import PageResult, Provider  # noqa: E402
-from make_sample_pdf import build  # noqa: E402
+from make_sample_pdf import ARABIC_FONT_AVAILABLE, FONTS, build  # noqa: E402
+
+if not ARABIC_FONT_AVAILABLE:
+    raise unittest.SkipTest("لا يوجد خط عربي (Arial) في هذا النظام — تُتخطّى اختبارات النص العربي المرسوم")
 
 
 
@@ -114,7 +117,7 @@ class ReversedLettersTests(unittest.TestCase):
             fitz.Rect(60, 70, 535, 780),
             '<p dir="rtl">تم تكليف املهمات املدنية لمن يتولى اإلدارة في الجهة.</p>',
             css="@font-face {font-family: ar; src: url(arial.ttf);} p {font-family: ar; font-size: 15px;}",
-            archive=fitz.Archive("C:/Windows/Fonts"),
+            archive=FONTS,
         )
         doc.save(pdf)
         doc.close()

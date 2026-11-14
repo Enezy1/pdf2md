@@ -30,7 +30,10 @@ from app.pdf_io import page_text_to_markdown  # noqa: E402
 from app.pipeline import BatchContext, Job, run_batch  # noqa: E402
 from app.providers import local_llama as ll  # noqa: E402
 from app.providers.base import EngineUnavailable, OcrRequest, PageImage, PageResult, Provider  # noqa: E402
-from make_sample_pdf import build  # noqa: E402
+from make_sample_pdf import ARABIC_FONT_AVAILABLE, build  # noqa: E402
+
+if not ARABIC_FONT_AVAILABLE:
+    raise unittest.SkipTest("لا يوجد خط عربي (Arial) في هذا النظام — تُتخطّى اختبارات النص العربي المرسوم")
 
 FAKE_SERVER = Path(__file__).with_name("fake_llama_server.py")
 

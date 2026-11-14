@@ -22,7 +22,10 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 os.environ.setdefault("PDF2MD_DATA_DIR", tempfile.mkdtemp(prefix="pdf2md-test-data-"))
 
-from make_sample_pdf import build  # noqa: E402
+from make_sample_pdf import ARABIC_FONT_AVAILABLE, build  # noqa: E402
+
+if not ARABIC_FONT_AVAILABLE:
+    raise unittest.SkipTest("لا يوجد خط عربي (Arial) في هذا النظام — تُتخطّى اختبارات النص العربي المرسوم")
 
 from app import checkpoint as cp  # noqa: E402
 from app import paddle_engine as pe  # noqa: E402

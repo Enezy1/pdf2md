@@ -35,7 +35,10 @@ from app.providers.base import ExternalProvider, PageImage  # noqa: E402
 from app.review_report import REPORT_NAME  # noqa: E402
 from app.summarize import SOURCE_API, ApiSummarizer, clean_pages, extractive_summary  # noqa: E402
 from app.tables import MISMATCH_TAG, TABLE_CONT, _visual_order, extract_tables, is_plausible, merge_tables, split_row  # noqa: E402
-from make_sample_pdf import TABLE_HEADER, build_tables  # noqa: E402
+from make_sample_pdf import ARABIC_FONT_AVAILABLE, TABLE_HEADER, build_tables  # noqa: E402
+
+if not ARABIC_FONT_AVAILABLE:
+    raise unittest.SkipTest("لا يوجد خط عربي (Arial) في هذا النظام — تُتخطّى اختبارات النص العربي المرسوم")
 
 TMP = Path(tempfile.mkdtemp(prefix="pdf2md-p4-"))
 TABLES_PDF = build_tables(TMP / "tables.pdf")
