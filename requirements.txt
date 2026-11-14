@@ -1,4 +1,6 @@
-PyMuPDF>=1.24
+# مثبّت على خط 1.x: آخر خط فيه عجلة macOS لـ Intel (2.x متاح لـ Apple Silicon فقط،
+# فبناء ماك على Intel كان يبني PyMuPDF من المصدر ويتعطّل). 1.28.2 فيه عجلتان: arm64 وx86_64.
+PyMuPDF>=1.24,<2.0
 Pillow>=10
 # مزوّدات الـ API (المرحلة 3)
 google-genai>=1.0
