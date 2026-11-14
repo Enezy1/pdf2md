@@ -81,8 +81,9 @@ class ServerLifecycleTests(unittest.TestCase):
             (self.tmp / n).write_bytes(b"x")
 
     def _server(self):
+        # مهلة أوسع: مشغّل CI قد يكون بطيئاً في إقلاع عملية بايثون جديدة.
         return ll.LlamaServer(self.tmp / "llama-server.exe", self.tmp / "m.gguf", self.tmp / "p.gguf", self.tmp,
-                              startup_timeout=20)
+                              startup_timeout=45)
 
     def test_start_ocr_close(self):
         with mock.patch.object(ll, "server_command", _fake_cmd("مرحبا")), \

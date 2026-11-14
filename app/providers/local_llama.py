@@ -197,7 +197,7 @@ class LlamaServer:
             except (urllib.error.URLError, OSError):
                 pass  # 503 أثناء تحميل النموذج
             time.sleep(0.5)
-        raise EngineUnavailable("انتهت مهلة تشغيل llama-server")
+        raise EngineUnavailable("انتهت مهلة تشغيل llama-server:\n" + self._log_tail())
 
     def alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
