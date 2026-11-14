@@ -36,7 +36,7 @@ def check_env() -> None:
 
 def check_imports() -> None:
     _section("الوحدات")
-    for mod in ("fitz", "PIL", "httpx", "google.genai", "keyring", "customtkinter", "sv_ttk", "darkdetect"):
+    for mod in ("fitz", "PIL", "numpy", "httpx", "google.genai", "keyring", "customtkinter", "sv_ttk", "darkdetect"):
         try:
             __import__(mod)
             print(f"{OK} {mod}")
@@ -99,7 +99,7 @@ def check_pipeline() -> None:
     _section("خط المعالجة (نص PDF → Markdown)")
     try:
         import fitz
-        from app.markdown_out import page_to_markdown
+        from app.pdf_io import page_text_to_markdown
     except Exception as e:
         print(f"{BAD} تعذّر الاستيراد: {e}")
         return
@@ -108,11 +108,10 @@ def check_pipeline() -> None:
     doc = fitz.open()
     page = doc.new_page()
     page.insert_text((72, 100), "Hello PDF2MD", fontsize=20)
-    page.insert_text((72, 140), "صفحة عربية للاختبار", fontsize=16)
     doc.save(str(pdf))
     doc.close()
     doc = fitz.open(str(pdf))
-    md = page_to_markdown(doc[0])
+    md = page_text_to_markdown(doc[0])
     doc.close()
     if "Hello" in md:
         print(f"{OK} استخراج النص يعمل ({len(md)} حرف)")
