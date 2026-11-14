@@ -72,10 +72,13 @@ def is_sideways(jpeg: bytes) -> bool:
     """صفحة مدوّرة 90°/270° (جدول بالعرض مثلاً): أسطر النص المتتابعة تصنع تذبذباً قوياً في مجموع كل صف من
     البكسلات عندما تكون الصفحة معتدلة، وفي مجموع كل عمود عندما تكون مدوّرة. OCR.space لا يبلغ دائماً عن
     الدوران (محضر ميدان الرماية ص3: قرأها وأعاد TextOrientation=0 وبعثر الجدول).
-    جُرّب على 13 صفحة حقيقية و9 صفحات عيّنات: لا خطأ."""
-    import numpy as np
-    from PIL import Image
+    جُرّب على 13 صفحة حقيقية و9 صفحات عيّنات: لا خطأ.
+
+    numpy و Pillow داخل المحاولة: إن غابا (تثبيت ناقص) يجب أن يتخطّى هذا الكشف
+    بدل أن يُسقط مهمة OCR كاملة بخطأ ModuleNotFoundError."""
     try:
+        import numpy as np
+        from PIL import Image
         g = Image.open(io.BytesIO(jpeg)).convert("L")
         g.thumbnail((800, 800))
         a = (np.array(g) < 150).astype(float)

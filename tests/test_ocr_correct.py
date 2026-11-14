@@ -598,6 +598,25 @@ class VisionFullTests(unittest.TestCase):
         Image.new("RGB", (1000, 1400), "white").save(blank, "JPEG")
         self.assertFalse(has_table(blank.getvalue()))
 
+    def test_sideways_check_survives_missing_numpy(self):
+        """إن غاب numpy (تثبيت ناقص) يتخطّى كشف المدوّرة ولا يُسقط مهمة OCR بخطأ استيراد.
+
+        هذا ما أسقط نسخة v1.0.3 المنشورة: numpy مستورد وقت التشغيل لكنه لم يكن في requirements.txt،
+        فكل مهمة OCR كانت تفشل بـ ModuleNotFoundError قبل إرسال الملف.
+        """
+        from app.layout import is_sideways
+        buf = io.BytesIO()
+        Image.new("RGB", (400, 600), "white").save(buf, "JPEG")
+        saved = sys.modules.get("numpy")
+        sys.modules["numpy"] = None        # استيراد numpy الآن يرفع ImportError
+        try:
+            self.assertFalse(is_sideways(buf.getvalue()))
+        finally:
+            if saved is None:
+                sys.modules.pop("numpy", None)
+            else:
+                sys.modules["numpy"] = saved
+
     def test_unverified_numbers(self):
         from app.layout import unverified_numbers
         self.assertEqual(unverified_numbers("المبلغ 43000 والبند 140A و 5", "المبلغ ٤٣٠٠٠ والبند 140A"), [])

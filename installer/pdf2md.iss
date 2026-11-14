@@ -12,7 +12,7 @@
 #define MyAppURL "https://github.com/Enezy1/pdf2md"
 
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "1.0.4"
 #endif
 #ifndef Pdf2mdExe
   #error Pdf2mdExe is required. Use: ISCC.exe /DPdf2mdExe=<path> /DOutputDir=<dir> /DAppVersion=<x.y.z> pdf2md.iss
