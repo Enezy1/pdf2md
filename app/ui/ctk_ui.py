@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -16,19 +17,73 @@ from . import theme
 from .theme import R, fs, px
 
 # خط Fluent للأيقونات (ويندوز 11) مع بديل ويندوز 10
-_ICON_FONTS = ("Segoe Fluent Icons", "Segoe MDL2 Assets")
-ICON = {
-    "settings": "", "folder": "", "add": "", "trash": "", "history": "",
-    "doc": "", "more": "", "check": "", "cloud": "", "shield": "",
-    "upload": "", "arrow": "", "layers": "", "chip": "",
+_ICON_FONTS_WIN = ("Segoe Fluent Icons", "Segoe MDL2 Assets")
+# على ماك لا يوجد خط Fluent مثبّت، لكن Apple Symbols جزء من النظام ورسومه أحادية اللون.
+_ICON_FONTS_MAC = ("Apple Symbols", "Lucida Grande", "Helvetica Neue")
+
+# رموز Segoe Fluent Icons (نطاق E7xx). نطاق الاستخدام الخاص لا يرسمه Tk إلا بخط Fluent،
+# فهي لا تظهر على ماك — فنستبدلها هناك برموز قياسية من Apple Symbols.
+_ICON_WIN = {
+    "settings": "\ue713", "folder": "\ue8b7", "add": "\ue710", "trash": "\ue74d",
+    "history": "\ue81c", "doc": "\ue8a5", "more": "\ue712", "check": "\ue73e",
+    "cloud": "\ue753", "shield": "\uea18", "upload": "\ue898", "arrow": "\ue72b",
+    "layers": "\ue81e", "chip": "\ue950",
 }
+
+# على ماك: (المفضّل، البديل). البديل يُستعمل إن لم يرسم النظام الأول.
+_ICON_MAC = {
+    "settings": ("\u2699", "\u2692"),   # gear
+    "folder": ("\u25a2", "\u229e"),     # square / squared plus
+    "add": ("\uff0b", "+"),              # fullwidth plus
+    "trash": ("\u2612", "\u2298"),      # ballot x / circled slash
+    "history": ("\u21bb", "\u21ba"),    # clockwise / anticlockwise
+    "doc": ("\u25a4", "\u25a3"),        # square with horizontal fill
+    "more": ("\u22ef", "\u00b7"),       # midline horizontal ellipsis
+    "check": ("\u2713", "\u2714"),      # check / heavy check
+    "cloud": ("\u2601", "\u2602"),      # cloud / umbrella
+    "shield": ("\u26e8", "\u25c7"),     # black cross on shield / diamond
+    "upload": ("\u2191", "\u2195"),      # up arrow
+    "arrow": ("\u2192", "\u2794"),      # right arrow / heavy wide-headed right arrow
+    "layers": ("\u25a6", "\u25a4"),     # square with orthogonal crosshatch
+    "chip": ("\u25c6", "\u25c7"),       # black diamond / diamond
+}
+
+IS_MAC = sys.platform == "darwin"
+ICON = dict(_ICON_WIN) if not IS_MAC else {k: v[0] for k, v in _ICON_MAC.items()}
 
 _fam: dict[str, str] = {}
 
 
 def _first_family(candidates: tuple[str, ...], fallback: str) -> str:
-    have = set(tkfont.families())
+    try:
+        have = set(tkfont.families())
+    except Exception:  # بلا نافذة جذر بعد
+        have = set()
     return next((c for c in candidates if c in have), fallback)
+
+
+def _draws(family: str, ch: str) -> bool:
+    """هل يرسم الخط هذه المحارف فعلاً؟ لو غابت من الخط رسم Tk مربعاً مكانها.
+
+    نقارن عرض المحرف بعرض محرف من نطاق الاستخدام الخاص (U+E000): لا وجود له في أي خط،
+    فعرضه هو عرض مربع "المحرف المفقود". اختلاف العرض = المحرف موجود.
+    """
+    try:
+        f = tkfont.Font(family=family, size=16)
+        return f.measure(ch) != f.measure("\ue000")
+    except Exception:
+        return False
+
+
+def _pick_icons(family: str) -> None:
+    """على ماك: يستبدل كل رمز لا يرسمه النظام بالبديل. يعدّل ICON في مكانه."""
+    if not IS_MAC:
+        return
+    for key, (first, second) in _ICON_MAC.items():
+        if _draws(family, first):
+            ICON[key] = first
+        elif _draws(family, second):
+            ICON[key] = second
 
 
 def text_family() -> str:
@@ -39,7 +94,9 @@ def text_family() -> str:
 
 def icon_family() -> str:
     if "icon" not in _fam:
-        _fam["icon"] = _first_family(_ICON_FONTS, "Segoe UI Symbol")
+        _fam["icon"] = _first_family(_ICON_FONTS_MAC if IS_MAC else _ICON_FONTS_WIN,
+                                     "Apple Symbols" if IS_MAC else "Segoe UI Symbol")
+        _pick_icons(_fam["icon"])
     return _fam["icon"]
 
 

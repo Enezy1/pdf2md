@@ -248,8 +248,7 @@ jobs:
           - **ملف محمول** (`pdf2md.exe`): بلا تثبيت، شغّله مباشرة.
 
           بصمة SHA256 لكلا الملفين في `SHA256SUMS.txt` المرفق.
-          "@
-          if ($env:SIGNED -eq 'true') {
+          "@          if ($env:SIGNED -eq 'true') {
             $body += "`nFree code signing provided by SignPath.io, certificate by SignPath Foundation."
           }
           gh release view $tag *> $null
@@ -259,3 +258,94 @@ jobs:
             gh release edit $tag --notes $body
           }
           gh release upload $tag 'dist\pdf2md.exe' 'dist\pdf2md-Setup.exe' 'SHA256SUMS.txt' --clobber
+
+  # ------------------------------------------------------------ ماك
+  # يبني نسخة .app على macos runners ( arm64 و x64 )، ويوقّعها توقيعاً ذاتياً (بلا حساب Apple)،
+  # ثم ينشر DMG و zip على الإصدار نفسه. يعمل بعد بناء ويندوز حتى يكون الإصدار موجوداً.
+  build-macos:
+    name: Build on macOS (${{ matrix.arch }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15          # Apple Silicon (macOS 15)
+            arch: arm64
+          - os: macos-15-intel    # Intel (macOS 15)
+            arch: x64
+
+    steps:
+      - name: Get the source code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Run the test suite
+        run: python -m pytest tests/ -q
+
+      - name: Build the app bundle
+        run: python -m PyInstaller pdf2md.spec --noconfirm --clean
+
+      - name: Sign and package (DMG + zip)
+        run: bash installer/make_dmg.sh ${{ matrix.arch }}
+
+      - name: Compute SHA256
+        run: |
+          shasum -a 256 "dist/pdf2md-macos-${{ matrix.arch }}.dmg" "dist/pdf2md-macos-${{ matrix.arch }}.zip" \
+            > "dist/SHA256SUMS-macos-${{ matrix.arch }}.txt"
+          cat "dist/SHA256SUMS-macos-${{ matrix.arch }}.txt"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf2md-macos-${{ matrix.arch }}
+          path: |
+            dist/pdf2md-macos-${{ matrix.arch }}.dmg
+            dist/pdf2md-macos-${{ matrix.arch }}.zip
+            dist/SHA256SUMS-macos-${{ matrix.arch }}.txt
+          retention-days: 30
+
+      - name: Publish to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            "dist/pdf2md-macos-${{ matrix.arch }}.dmg" \
+            "dist/pdf2md-macos-${{ matrix.arch }}.zip" \
+            "dist/SHA256SUMS-macos-${{ matrix.arch }}.txt" --clobber
+
+      # وصف نسخة ماك في صفحة الإصدار — مرة واحدة (arm64) حتى لا يتسابق العمودان.
+      - name: Describe the macOS build in the release notes
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.arch == 'arm64'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          note=$(cat <<'EOF'
+
+          ### نسخة ماك
+
+          - **`pdf2md-macos-arm64.dmg`** لأجهزة Apple Silicon، و**`pdf2md-macos-x64.dmg`** لأجهزة Intel.
+          - اسحب التطبيق إلى مجلّد Applications. النسخة **بدون توقيع Apple Developer**، فmacOS يحجبها عند أول فتح:
+            اضغط بالزر الأيمن على التطبيق ثم **فتح**، أو من الطرفية:
+            `xattr -dr com.apple.quarantine /Applications/pdf2md.app`
+          - بصمة SHA256 في `SHA256SUMS-macos-arm64.txt` و `SHA256SUMS-macos-x64.txt`.
+          - الوضع السحابي فقط في نسخة ماك (Gemini / OpenAI / OCR.space)؛ المحرّكات المحلية متاحة على ويندوز.
+          EOF
+          )
+          body="$(gh release view "${{ github.ref_name }}" --json body --jq .body)"
+          printf '%s\n%s\n' "$body" "$note" > /tmp/notes.md
+          gh release edit "${{ github.ref_name }}" --notes-file /tmp/notes.md

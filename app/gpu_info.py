@@ -1,6 +1,7 @@
-"""كشف كروت الشاشة في ويندوز ليعرف المستخدم هل يفيده تشغيل النماذج على الكرت.
+"""كشف كروت الشاشة ليعرف المستخدم هل يفيده تشغيل النماذج على الكرت.
 
-Win32_VideoController.AdapterRAM رقم 32-بت: يُقصّ عند 4GB، فالذاكرة المعروضة لكروت أكبر منها تقريبية ("≥4").
+على ويندوز: Win32_VideoController.AdapterRAM رقم 32-بت: يُقصّ عند 4GB، فالذاكرة المعروضة لكروت أكبر منها تقريبية ("≥4").
+على ماك: system_profiler يعطي اسم الكرت وذاكرته (spdisplays_vram) — أرقام دقيقة.
 لا يتحقق من دعم Vulkan فعلياً؛ التحقق الحقيقي هو تشغيل المحرّك، وعند فشله يعود البرنامج للمعالج تلقائياً.
 """
 
@@ -41,11 +42,22 @@ def parse(raw: str) -> list[Gpu]:
     return out
 
 
+def parse_macos(items: list[dict]) -> list[Gpu]:
+    """نظام_profiler على ماك: [{'name': str, 'vram_gb': float}]."""
+    out = []
+    for d in items:
+        name = str(d.get("name") or "").strip()
+        if not name or _VIRTUAL.search(name):
+            continue
+        out.append(Gpu(name, round(float(d.get("vram_gb") or 0.0), 1), bool(_DISCRETE.search(name))))
+    return out
+
+
 _cache: list[Gpu] | None = None
 
 
 def detect() -> list[Gpu]:
-    """يُكتشف مرة واحدة في الجلسة (استدعاء PowerShell ~1 ث) والواجهة تُعاد رسمها كثيراً."""
+    """يُكتشف مرة واحدة في الجلسة (استدعاء system ~1 ث) والواجهة تُعاد رسمها كثيراً."""
     global _cache
     if _cache is None:
         _cache = _detect()
@@ -53,6 +65,9 @@ def detect() -> list[Gpu]:
 
 
 def _detect() -> list[Gpu]:
+    from .oscompat import IS_MAC, gpu_rows
+    if IS_MAC:
+        return parse_macos(gpu_rows())
     cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command",
            "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress"]
     try:

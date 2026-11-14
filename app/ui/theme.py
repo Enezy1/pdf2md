@@ -3,10 +3,12 @@
 - الوضع الفاتح/الداكن يتبع النظام (darkdetect) ما لم يُختر غير ذلك في "متقدم".
 - كل نص عربي يُمرَّر عبر R() (تضمين RLE) حتى يُرسم من اليمين لليسار في Tk.
 - المقاسات بالبكسل تُضرب في مقياس الشاشة (px) حتى لا تضيق على الشاشات المكبّرة.
+- الخطوط تُختار حسب نظام التشغيل: Segoe UI على ويندوز، وخط عربي من خطوط ماك على ماك.
 """
 
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
@@ -14,7 +16,19 @@ from tkinter import ttk
 from . import themes
 
 RLE, PDF = "‫", "‬"  # تضمين من اليمين لليسار … نهاية التضمين
-FONT = "Segoe UI"
+
+IS_MAC = sys.platform == "darwin"
+
+# خطوط الواجهة حسب النظام. الأول المتاح يُستعمل. على ماك: Geeza Pro هو خط النظام
+# العربي الافتراضي، و"SF Arabic" متاح في macOS 13+ (وقد لا يظهر في قائمة Tk).
+_FONT_CANDIDATES = {
+    "darwin": ("SF Arabic", "Geeza Pro", "Al Bayan", "Baghdad", "Damascus",
+               "SF Pro Text", "Helvetica Neue", "Arial"),
+    "win32": ("Segoe UI", "Tahoma", "Arial"),
+}
+_FONT_CANDIDATES["linux"] = ("Noto Sans Arabic", "DejaVu Sans", "Arial")
+
+FONT = "Segoe UI" if not IS_MAC else "Geeza Pro"
 
 # مسافات متسقة (قبل ضربها في مقياس الشاشة)
 S1, S2, S3, S4 = 4, 8, 12, 16
@@ -46,14 +60,31 @@ def fs(points: int) -> int:
 
 
 def text_scale() -> float:
-    """يقرأ "حجم النص" من إعدادات ويندوز (100–225%)."""
+    """يقرأ "حجم النص" من إعدادات ويندوز (100–225%). على ماك ولينكس: 1.0 (ما فيه تكبير نظامي)."""
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Accessibility") as k:
             v = winreg.QueryValueEx(k, "TextScaleFactor")[0]
         return min(max(int(v), 100), 225) / 100
-    except OSError:
+    except Exception:
+        # ماك ولينكس لا يوفّران هذا الإعداد؛ وimport winreg نفسه يفشل خارج ويندوز.
         return 1.0
+
+
+def resolve_font(root: tk.Misc) -> str:
+    """يختار خط الواجهة المناسب لهذا النظام ويضبطه كخط افتراضي للبرنامج.
+
+    على ماك: Geeza Pro (خط النظام العربي) ما لم يوجد SF Arabic. على ويندوز: Segoe UI.
+    يعيد اسم الخط المستعمل.
+    """
+    global FONT
+    cands = _FONT_CANDIDATES.get(sys.platform, _FONT_CANDIDATES["win32"])
+    try:
+        have = set(tkfont.families(root))
+    except Exception:
+        have = set()
+    FONT = next((c for c in cands if c in have), FONT)
+    return FONT
 
 
 def px(n: float) -> int:
@@ -101,6 +132,7 @@ def apply(root: tk.Tk, mode: str = "system", palette_pick: str = "") -> None:
     want = system_theme() if mode not in ("light", "dark") else mode
     _dark = want == "dark"
     _pname = themes.resolve(palette_pick)
+    resolve_font(root)
     try:
         import sv_ttk
         sv_ttk.set_theme(want, root)
@@ -562,6 +594,11 @@ def work_area(win: tk.Misc) -> tuple[int, int, int, int]:
             return r.left, r.top, r.right - r.left, r.bottom - r.top
     except Exception:
         pass
+    if IS_MAC:
+        # على ماك: شريط القوائم في الأعلى (≈25 نقطة) والشريط الجانبي/الـ Dock في الأسفل.
+        # هندسة Tk على ماك بالنقاط، وpx() بلا ضرب هنا لأن مقياس Tk على ماك 72.
+        top = 25
+        return 0, top, win.winfo_screenwidth(), max(win.winfo_screenheight() - top - 70, 200)
     return 0, 0, win.winfo_screenwidth(), win.winfo_screenheight() - px(48)
 
 
@@ -583,13 +620,31 @@ def fit_window(win: tk.Misc, w: int, h: int, min_w: int, min_h: int) -> None:
 
 def bind_key(win: tk.Misc, vk: int, fn, shift: bool = False) -> None:
     """اختصار Ctrl+حرف يعمل مهما كانت لغة لوحة المفاتيح: نطابق رمز الزر الفعلي (keycode)
-    لا الحرف، لأن Ctrl+O مع اللوحة العربية يصل حرفاً عربياً (انظر clipboard.py)."""
+    لا الحرف، لأن Ctrl+O مع اللوحة العربية يصل حرفاً عربياً (انظر clipboard.py).
+    على ماك نضيف Command (⌘) لأنه اختصار النظام هناك."""
     def handler(e):
         if e.keycode != vk or bool(e.state & 0x1) != shift:
             return None
         fn()
         return "break"
     win.bind("<Control-KeyPress>", handler, add="+")
+    if IS_MAC:
+        win.bind("<Command-KeyPress>", handler, add="+")
+
+
+# رموز الأزرار تختلف بين الأنظمة: Windows يستعمل Virtual-Key codes، وmacOS يستعمل
+# virtual keycodes (رقمية USB) مختلفة تماماً — O هو 79 على ويندوز و31 على ماك.
+# القيم أدناه لتخطيط QWERTY في كل نظام.
+KEYCODES = {
+    "win32": {"a": 65, "c": 67, "o": 79, "v": 86, "x": 88, "comma": 188},
+    "darwin": {"a": 0, "c": 8, "o": 31, "v": 9, "x": 7, "comma": 43},
+    "linux": {"a": 38, "c": 46, "o": 32, "v": 55, "x": 53, "comma": 51},
+}
+
+
+def key_code(name: str) -> int:
+    """رمز الزر الفعلي لهذا النظام. يُستعمل في الربط حتى يعمل الاختصار مع لوحة عربية."""
+    return KEYCODES.get(sys.platform, KEYCODES["win32"]).get(name, -1)
 
 
 def friendly_error(e: BaseException) -> str:

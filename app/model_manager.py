@@ -223,6 +223,10 @@ def import_from_folder(folder: Path, progress: Progress | None = None,
 
 # ------------------------------------------------------------ llama-server
 
+# اسم الملف التنفيذي: على ويندوز "llama-server.exe"، وعلى ماك ولينكس بلا لاحقة.
+_LLAMA_BIN = "llama-server.exe" if os.name == "nt" else "llama-server"
+
+
 def llama_root() -> Path:
     return app_data_dir() / "llama"
 
@@ -233,7 +237,7 @@ def _llama_dir(gpu: bool) -> Path:
 
 def llama_exe(gpu: bool = False) -> Path | None:
     """نسخة المعالج (الافتراضية) أو نسخة Vulkan لكرت الشاشة."""
-    exe = _llama_dir(gpu) / "llama-server.exe"
+    exe = _llama_dir(gpu) / _LLAMA_BIN
     return exe if exe.is_file() else None
 
 
@@ -258,14 +262,14 @@ def _extract_llama(zip_path: Path, gpu: bool = False) -> Path:
                 raise IntegrityError(f"مسار غير آمن داخل الأرشيف: {info.filename}")
         z.extractall(tmp)
     # بعض الإصدارات تضع الملفات داخل مجلد فرعي
-    exe = next(tmp.rglob("llama-server.exe"), None)
+    exe = next(tmp.rglob(_LLAMA_BIN), None)
     if exe is None:
         shutil.rmtree(tmp, ignore_errors=True)
-        raise IntegrityError("الأرشيف لا يحتوي llama-server.exe")
+        raise IntegrityError(f"الأرشيف لا يحتوي {_LLAMA_BIN}")
     shutil.rmtree(target, ignore_errors=True)
     os.replace(exe.parent, target)
     shutil.rmtree(tmp, ignore_errors=True)
-    return target / "llama-server.exe"
+    return target / _LLAMA_BIN
 
 
 def download_llama(progress: Progress | None = None, stop: threading.Event | None = None,

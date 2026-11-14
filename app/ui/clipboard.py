@@ -2,16 +2,21 @@
 
 مشكلة Tk على ويندوز: مع لوحة المفاتيح العربية يصبح Ctrl+V حرفاً عربياً (ر) فلا يعمل اللصق.
 الحل: الربط برمز الزر الفعلي (keycode) لا بالحرف، مع قائمة بالزر الأيمن.
+
+رموز الأزرار تختلف بين ويندوز وماك، فنأخذها من theme.key_code (انظر theme.KEYCODES).
 """
 
 from __future__ import annotations
 
+import sys
+
 import tkinter as tk
 
-from .theme import R
+from .theme import R, key_code
 
-# رموز الأزرار الافتراضية في ويندوز (Virtual-Key codes) — لا تتغير مع لغة لوحة المفاتيح
-VK = {86: "<<Paste>>", 67: "<<Copy>>", 88: "<<Cut>>", 65: "<<SelectAll>>"}
+# رموز الأزرار الافتراضية — لا تتغير مع لغة لوحة المفاتيح
+VK = {key_code("v"): "<<Paste>>", key_code("c"): "<<Copy>>",
+      key_code("x"): "<<Cut>>", key_code("a"): "<<SelectAll>>"}
 _LATIN = {"v", "c", "x", "a", "V", "C", "X", "A"}
 
 
@@ -67,3 +72,6 @@ def install(root: tk.Misc) -> None:
     for cls in ("TEntry", "Entry", "TCombobox", "TSpinbox", "Text"):
         root.bind_class(cls, "<Control-KeyPress>", _on_ctrl_key, add="+")
         root.bind_class(cls, "<Button-3>", _context_menu, add="+")
+        if sys.platform == "darwin":
+            # على ماك: ⌘V هو اللصق الطبيعي (و Ctrl+V ما زال مدعوماً أيضاً).
+            root.bind_class(cls, "<Command-KeyPress>", _on_ctrl_key, add="+")

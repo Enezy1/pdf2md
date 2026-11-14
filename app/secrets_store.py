@@ -1,7 +1,8 @@
 """حفظ مفاتيح المزوّدات خارج الكود وخارج الإعدادات النصية.
 
-الترتيب: keyring (مدير بيانات الاعتماد في ويندوز) إن كانت المكتبة مثبّتة، وإلا DPAPI
-(تشفير ويندوز المرتبط بحساب المستخدم) في ملف secrets.dat. الملف لا يُفك إلا على نفس
+الترتيب: keyring (مدير بيانات الاعتماد: Credential Manager في ويندوز، Keychain في ماك)
+إن كانت المكتبة مثبّتة، وإلا DPAPI (تشفير ويندوز المرتبط بحساب المستخدم) على ويندوز،
+وإلا ملف محلي مشفّر بسرّ مشتق من الجهاز على غير ويندوز. الملف لا يُفك إلا على نفس
 الحساب ونفس الجهاز.
 
 كل مفتاح يُحمَّل أو يُحفظ يُسجَّل في RedactingFilter، فلا يظهر في أي سجل حتى لو تسرّب
@@ -11,6 +12,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -27,6 +30,7 @@ REDACTED = "«مفتاح محجوب»"
 
 _known: set[str] = set()
 _known_lock = threading.Lock()
+_device_key: bytes | None = None
 
 
 def register_secret(value: str) -> None:
@@ -157,13 +161,86 @@ class _DpapiBackend:
                 atomic_write_json(self.path, d)
 
 
+class _LocalBackend:
+    """احتياطي لغير ويندوز: تشفير بسرّ مشتق من الجهاز (HMAC-SHA256) في secrets.dat.
+
+    ليس حماية معقّدة كـ DPAPI، لكنّه يُبقي الملف غير مقروء على جهاز آخر أو حساب آخر:
+    المفتاح يُشتق من اسم الجهاز ومعرّفه وعقدة الشبكة، فلا يوجد عنده.
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        self._lock = threading.Lock()
+        self._key = self._derive_key()
+
+    @staticmethod
+    def _derive_key() -> bytes:
+        global _device_key
+        if _device_key is None:
+            from .oscompat import device_secret
+            _device_key = hashlib.pbkdf2_hmac("sha256", device_secret(), b"pdf2md-secrets-v1", 120_000)
+        return _device_key
+
+    def _keystream(self, nonce: bytes, n: int) -> bytes:
+        out = bytearray()
+        counter = 0
+        while len(out) < n:
+            out += hmac.new(self._key, nonce + counter.to_bytes(4, "big"), hashlib.sha256).digest()
+            counter += 1
+        return bytes(out[:n])
+
+    def _encrypt(self, data: bytes) -> bytes:
+        nonce = os.urandom(16)
+        ct = bytes(a ^ b for a, b in zip(data, self._keystream(nonce, len(data))))
+        tag = hmac.new(self._key, b"tag" + nonce + ct, hashlib.sha256).digest()[:16]
+        return nonce + tag + ct
+
+    def _decrypt(self, blob: bytes) -> bytes:
+        if len(blob) < 32:
+            raise OSError("ملف المفاتيح تالف")
+        nonce, tag, ct = blob[:16], blob[16:32], blob[32:]
+        want = hmac.new(self._key, b"tag" + nonce + ct, hashlib.sha256).digest()[:16]
+        if not hmac.compare_digest(tag, want):
+            raise OSError("فشل فك التشفير — الجهاز أو الحساب مختلف")
+        return bytes(a ^ b for a, b in zip(ct, self._keystream(nonce, len(ct))))
+
+    def _load(self) -> dict:
+        return read_json(self.path, default={}) or {}
+
+    def get(self, name):
+        with self._lock:
+            blob = self._load().get(name)
+        if not blob:
+            return None
+        return self._decrypt(base64.b64decode(blob)).decode("utf-8")
+
+    def set(self, name, value):
+        enc = base64.b64encode(self._encrypt(value.encode("utf-8"))).decode()
+        with self._lock:
+            d = self._load()
+            d[name] = enc
+            atomic_write_json(self.path, d)
+
+    def delete(self, name):
+        with self._lock:
+            d = self._load()
+            if d.pop(name, None) is not None:
+                atomic_write_json(self.path, d)
+
+
 def _default_backend():
     if os.environ.get("PDF2MD_SECRETS_BACKEND") == "memory":
         return _MemoryBackend()
     try:
         return _KeyringBackend()
     except Exception:
-        return _DpapiBackend(app_data_dir() / "secrets.dat")
+        pass
+    if os.name == "nt":
+        try:
+            return _DpapiBackend(app_data_dir() / "secrets.dat")
+        except Exception:
+            pass
+    return _LocalBackend(app_data_dir() / "secrets.dat")
 
 
 class SecretsStore:

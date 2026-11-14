@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import tkinter as tk
 import webbrowser
@@ -21,6 +20,8 @@ import customtkinter as ctk
 from .. import model_manager as mm
 from .. import models_catalog as cat
 from ..config import API_BATCH_SIZES, app_data_dir
+from ..oscompat import memory_gb as _memory_gb
+from ..oscompat import open_path
 from ..providers.catalog import ProviderSpec
 from . import ctk_ui as ui
 from . import theme, themes
@@ -38,22 +39,8 @@ FIELD_LABELS = {
 
 
 def _ram_gb() -> float | None:
-    """ذاكرة الجهاز بالـ GB (ويندوز)، أو None إن تعذّرت معرفتها."""
-    try:
-        import ctypes
-
-        class MEMORYSTATUSEX(ctypes.Structure):
-            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
-                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
-                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
-                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
-                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
-        m = MEMORYSTATUSEX()
-        m.dwLength = ctypes.sizeof(m)
-        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
-        return m.ullTotalPhys / 1024 ** 3
-    except Exception:
-        return None
+    """ذاكرة الجهاز بالـ GB (ويندوز أو ماك أو لينكس)، أو None إن تعذّرت معرفتها."""
+    return _memory_gb()
 
 
 def _on_disk(files) -> tuple[int, int]:
@@ -1202,7 +1189,7 @@ class SettingsWindow:
 
     def _lab_open_report(self) -> None:
         if self.lab_html and self.lab_html.is_file():
-            os.startfile(self.lab_html)  # noqa: S606
+            open_path(self.lab_html)
 
     # ============================================================ متقدم
     def _build_advanced(self) -> None:
@@ -1367,7 +1354,7 @@ class SettingsWindow:
     def _open_sent_log(self) -> None:
         p = app_data_dir() / "sent_log.csv"
         if p.is_file():
-            os.startfile(p)  # noqa: S606
+            open_path(p)
         else:
             messagebox.showinfo("سجل الإرسال", "لم يُرسل شيء بعد.", parent=self.win)
 

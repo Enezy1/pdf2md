@@ -120,6 +120,8 @@ def unsupported_reason() -> str:
     """"" إذا أمكن تشغيل المحرّك في هذه البيئة، وإلا السبب. البايثون يأتي مع المحرّك نفسه (python\\)،
     فيعمل في نسخة exe وفي python main.py بأي إصدار."""
     if sys.platform != "win32" or struct.calcsize("P") != 8:
+        if sys.platform == "darwin":
+            return "محرّك PaddleOCR المحلي متاح على ويندوز فقط في هذه النسخة؛ استخدم الوضع السحابي."
         return "يتطلب ويندوز 64-بت."
     return ""
 

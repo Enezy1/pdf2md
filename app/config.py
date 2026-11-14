@@ -1,7 +1,10 @@
 """الإعدادات ومسارات بيانات البرنامج.
 
-كل بيانات البرنامج (الإعدادات، ذاكرة البصمات، السجلات) في
-%APPDATA%\\pdf2md — لا تحتاج صلاحيات admin. يمكن تغيير المسار بمتغير البيئة
+كل بيانات البرنامج (الإعدادات، ذاكرة البصمات، السجلات) في مجلّد بيانات التطبيق:
+  - ويندوز: %APPDATA%\\pdf2md
+  - ماك:    ~/Library/Application Support/pdf2md
+  - لينكس: ~/.local/share/pdf2md
+لا تحتاج صلاحيات admin في أيٍّ منها. يمكن تغيير المسار بمتغير البيئة
 PDF2MD_DATA_DIR (مفيد للاختبارات أو للتشغيل من فلاشة).
 """
 
@@ -11,6 +14,7 @@ import dataclasses
 import json
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,8 +29,13 @@ def app_data_dir() -> Path:
     override = os.environ.get("PDF2MD_DATA_DIR")
     if override:
         d = Path(override)
-    else:
+    elif os.name == "nt":
         base = os.environ.get("APPDATA") or str(Path.home())
+        d = Path(base) / APP_NAME
+    elif sys.platform == "darwin":
+        d = Path.home() / "Library" / "Application Support" / APP_NAME
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
         d = Path(base) / APP_NAME
     d.mkdir(parents=True, exist_ok=True)
     return d

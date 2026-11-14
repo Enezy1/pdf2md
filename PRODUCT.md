@@ -6,7 +6,11 @@
 
 desktop
 
-Windows desktop app (Tkinter + sv-ttk Fluent theme, follows system light/dark via darkdetect). Not web, iOS, or Android; native Windows 11 conventions apply.
+Windows and macOS desktop app (Tkinter + sv-ttk Fluent theme, follows system light/dark via darkdetect). Not web, iOS, or Android; native conventions apply on each OS.
+
+Platform split, by design: the **core pipeline and all cloud providers work on both Windows and macOS**; the **local engines (PaddleOCR, the on-device vision model) are Windows-only** in this release. The macOS build is therefore cloud-only, and says so in the UI rather than hiding the missing capability.
+
+OS-specific concerns are isolated in `app/oscompat.py` (data paths, opening files, device memory, GPU) plus small branches in `app/ui/theme.py` (fonts, work area, keyboard shortcuts) and `app/ui/ctk_ui.py` (icon glyphs). Everything else is platform-agnostic.
 
 ## Users
 
@@ -23,8 +27,8 @@ Privacy comes first, and the code enforces it, not just the UI: "local" mode is 
 ## Operating Context
 
 - Select files on the main window, choose the mode (local or cloud), start, and review the result.
-- Only the Markdown file is written next to each PDF (or to a folder the user picks); work files (state, raw OCR, correction and review reports, index) live in `%TEMP%\pdf2md` and are cleaned after a week. There is a review window for flagged pages, an index builder, and summaries. See `DEVLOG.md` for the OCR.space + corrector chain.
-- OCR engines: a local llama model, or cloud providers (OCR.space followed by an LLM text corrector, Gemini, OpenAI-compatible). API keys are stored with keyring or DPAPI.
+- Only the Markdown file is written next to each PDF (or to a folder the user picks); work files (state, raw OCR, correction and review reports, index) live in `%TEMP%\pdf2md` on Windows and `$TMPDIR/pdf2md` on macOS, and are cleaned after a week. There is a review window for flagged pages, an index builder, and summaries. See `DEVLOG.md` for the OCR.space + corrector chain.
+- OCR engines: a local llama model (Windows only), or cloud providers (OCR.space followed by an LLM text corrector, Gemini, OpenAI-compatible). API keys are stored with keyring (Credential Manager / Keychain) or with device-bound encryption as a fallback.
 
 ## Capabilities and Constraints
 

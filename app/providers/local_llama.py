@@ -15,6 +15,7 @@ import base64
 import json
 import logging
 import os
+import signal
 import socket
 import subprocess
 import threading
@@ -147,8 +148,10 @@ class LlamaServer:
             log.info("تشغيل llama-server على %s", self.base_url)
             logf = open(self.log_path, "ab")
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            # على ماك ولينكس: مجموعة عمليات مستقلة، فإغلاقها تُغلق الخادم وأبناءه معاً.
             self.proc = subprocess.Popen(cmd, stdout=logf, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                         creationflags=flags, cwd=str(self.exe.parent))
+                                         creationflags=flags, cwd=str(self.exe.parent),
+                                         start_new_session=(os.name != "nt"))
             logf.close()
             atexit.register(self.close)
             self._attach_job()
@@ -204,11 +207,24 @@ class LlamaServer:
             p, self.proc = self.proc, None
         if p and p.poll() is None:
             log.info("إغلاق llama-server")
-            p.terminate()
+            if os.name != "nt":
+                # على ماك ولينكس: نقتل مجموعة العمليات كاملة (الخادم وأبناؤه).
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+                except (OSError, ProcessLookupError):
+                    p.terminate()
+            else:
+                p.terminate()
             try:
                 p.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                p.kill()
+                if os.name != "nt":
+                    try:
+                        os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                    except (OSError, ProcessLookupError):
+                        p.kill()
+                else:
+                    p.kill()
                 p.wait(timeout=5)
         try:
             atexit.unregister(self.close)

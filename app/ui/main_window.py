@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import queue
 import threading
 import tkinter as tk
@@ -27,6 +26,7 @@ from ..cloud_gate import CLOUD, LOCAL, CloudGate
 from ..config import Settings, app_data_dir, cleanup_work_dir, setup_logging, work_dir
 from ..file_options import FileOptions
 from ..hashing import HashCache
+from ..oscompat import open_path
 from ..pipeline import BatchContext, Job, apply_review_decisions, build_index_safe, run_api_phase, run_batch
 from ..providers.catalog import ProviderConfig
 from ..rate_limit import UsageCounter
@@ -186,9 +186,11 @@ class MainWindow:
         clipboard.install(root)
         # اختصارات (برمز الزر الفعلي حتى تعمل مع اللوحة العربية)
         root.bind("<Control-Return>", lambda e: (self._start_or_stop(), "break")[1])
-        theme.bind_key(root, 79, self._choose_folder)              # Ctrl+O
-        theme.bind_key(root, 79, self._add_file, shift=True)       # Ctrl+Shift+O
-        theme.bind_key(root, 188, self.open_settings)              # Ctrl+,
+        if theme.IS_MAC:
+            root.bind("<Command-Return>", lambda e: (self._start_or_stop(), "break")[1])
+        theme.bind_key(root, theme.key_code("o"), self._choose_folder)              # Ctrl+O
+        theme.bind_key(root, theme.key_code("o"), self._add_file, shift=True)       # Ctrl+Shift+O
+        theme.bind_key(root, theme.key_code("comma"), self.open_settings)            # Ctrl+,
         if self.settings.last_folder and Path(self.settings.last_folder).is_dir():
             self._load_folder(Path(self.settings.last_folder))
 
@@ -868,7 +870,7 @@ class MainWindow:
         if all(hashes) and not self.busy():
             m.add_command(label=R("إعادة المعالجة من الصفر"), command=lambda: self._reset_files(entries))
         if len(entries) == 1:
-            m.add_command(label=R("فتح الملف"), command=lambda: os.startfile(entries[0].path))  # noqa: S606
+            m.add_command(label=R("فتح الملف"), command=lambda: open_path(entries[0].path))
         extras = [e for e in entries if e.extra]
         if extras:
             m.add_command(label=R("إزالة من القائمة"), command=lambda: self._remove_extra(extras))
@@ -890,7 +892,7 @@ class MainWindow:
             messagebox.showerror("تعذّر إنشاء ملف Word", theme.friendly_error(ex), parent=self.root)
             return
         self.log(f"✔ أُنشئ ملف Word: {out}")
-        os.startfile(out)  # noqa: S606
+        open_path(out)
 
     def _reset_files(self, entries: list) -> None:
         """البرنامج يحفظ ما قرأه من كل صفحة ولا يعيد إرسالها؛ هذا يمسح ذلك ليُقرأ الملف من جديد."""
@@ -953,7 +955,7 @@ class MainWindow:
     def _open_output(self) -> None:
         out = self.md_folder()
         if out and out.is_dir():
-            os.startfile(out)  # noqa: S606 — يفتح المجلد في مستكشف ويندوز
+            open_path(out)  # يفتح المجلد في مستكشف الملفات
         else:
             messagebox.showinfo("لا يوجد مجلد إخراج", "لم يُنشأ مجلد الإخراج بعد. اضغط «ابدأ» أولاً.")
 
@@ -961,7 +963,7 @@ class MainWindow:
         out = self.output_dir()
         target = out / name if out else None
         if target and target.is_file():
-            os.startfile(target)  # noqa: S606
+            open_path(target)
         else:
             messagebox.showinfo("الملف غير موجود", f"لم يُنشأ {name} بعد. يظهر بعد معالجة الملفات.")
 

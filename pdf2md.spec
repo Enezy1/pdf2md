@@ -1,16 +1,20 @@
-# بناء نسخة exe:
+# بناء نسخة exe (ويندوز) أو نسخة .app (ماك):
 #     python -m PyInstaller pdf2md.spec --noconfirm
-#   dist\pdf2md.exe          ملف واحد يحمل كل شيء — هذا الذي يُنقل لأي جهاز (لا يحتاج بايثون ولا مجلداً بجانبه)
-#   dist\pdf2md\pdf2md.exe   نسخة المجلد (أسرع فتحاً، لكن يجب نقل المجلد كاملاً مع _internal)
-# الإعدادات والمفاتيح والنماذج تبقى في %APPDATA%\pdf2md كما في python main.py.
+#   ويندوز: dist\pdf2md.exe          ملف واحد يحمل كل شيء — هذا الذي يُنقل لأي جهاز
+#            dist\pdf2md\pdf2md.exe   نسخة المجلد (أسرع فتحاً، لكن يجب نقل المجلد كاملاً مع _internal)
+#   ماك:    dist\pdf2md.app          حزمة التطبيق (double-click للتشغيل)
+#            dist\pdf2md\pdf2md      التنفيذ داخل الحزمة
+# الإعدادات والمفاتيح تبقى في مجلّد بيانات التطبيق (%APPDATA% أو ~/Library/Application Support) كما في python main.py.
 # PaddleOCR لا يُضمَّن هنا: يُنزَّل من الإعدادات مع بايثون مضمَّن خاص به (engines\paddle\python).
 
 from pathlib import Path
 import re
+import sys
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH)
+IS_MAC = sys.platform == "darwin"
 
 # اسم الشركة والنشر: يظهر في خصائص الملف، وفي لوحة التحكم ← البرامج بعد التثبيت.
 PUBLISHER = "Enezy1"
@@ -28,11 +32,14 @@ def version_resource() -> str:
     """ملف موارد النسخة (VSVersionInfo): اسم المنتج والشركة والوصف.
 
     بدونه يبقى الملف بلا وصف، فيظهر في خصائصه وفي لوحة التحكم باسم غير مفهوم.
+    خاص بويندوز — على ماك يتولّى Info.plist هذه المهمة.
     """
+    if IS_MAC:
+        return ""
     v = app_version()
     nums = [int(x) for x in re.findall(r"\d+", v)[:4]]
     nums += [0] * (4 - len(nums))
-    quad = ", ".join(str(x) for x in nums)
+    quad = ", ".join(str(n) for n in nums)
     txt = f"""VSVersionInfo(
   ffi=FixedFileInfo(
     filevers=({quad}),
@@ -71,11 +78,18 @@ hidden = [m for m in collect_submodules("app") if not m.endswith("paddle_worker"
 
 datas = [
     (str(ROOT / "resources"), "resources"),
-    (str(ROOT / "assets"), "assets"),  # الشعار وأيقونة النافذة
     (str(ROOT / "app" / "paddle_worker.py"), "app"),
 ]
+# الأصول: الشعار (تستعمله الواجهة) وأيقونة النافذة. أيقونة ماك (.icns) لا تُضمَّن في نسخة ويندوز.
+for _asset in sorted((ROOT / "assets").glob("*")):
+    if _asset.suffix == ".icns" and not IS_MAC:
+        continue
+    datas.append((str(_asset), "assets"))
 datas += collect_data_files("customtkinter")
 datas += collect_data_files("sv_ttk")
+
+# أيقونة التطبيق: .ico على ويندوز، .icns على ماك (يلزم ملف .icns لطرد BUNDLE)
+icon_file = str(ROOT / "assets" / ("pdf2md.icns" if IS_MAC else "pdf2md.ico"))
 
 a = Analysis(
     [str(ROOT / "main.py")],
@@ -97,23 +111,50 @@ exe = EXE(
     exclude_binaries=True,
     name="pdf2md",
     console=False,
-    icon=str(ROOT / "assets" / "pdf2md.ico"),
-    version=version_resource(),
+    icon=icon_file,
+    version=version_resource() or None,
     upx=False,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="pdf2md", upx=False)
 
-# نسخة الملف الواحد: كل المكتبات داخل exe وتُفك في مجلد مؤقت عند الفتح (أبطأ بثوانٍ، لكن لا شيء ينقص عند النقل).
-onefile = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
-    name="pdf2md",
-    console=False,
-    icon=str(ROOT / "assets" / "pdf2md.ico"),
-    version=version_resource(),
-    upx=False,
-    runtime_tmpdir=None,
-)
+if IS_MAC:
+    # حزمة التطبيق: ماك لا يشغّل ملفاً تنفيذياً عادياً — يشغّل حزمة .app فيها Info.plist.
+    # بدون NSHighResolutionCapable تظهر الواجهة باهتة على شاشات Retina.
+    v = app_version()
+    app = BUNDLE(
+        coll,
+        name="pdf2md.app",
+        icon=icon_file,
+        bundle_identifier="com.eneby1.pdf2md",
+        info_plist={
+            "CFBundleName": "pdf2md",
+            "CFBundleDisplayName": "pdf2md",
+            "CFBundleExecutable": "pdf2md",
+            "CFBundleIdentifier": "com.eneby1.pdf2md",
+            "CFBundleShortVersionString": v,
+            "CFBundleVersion": v,
+            "CFBundleIconFile": "pdf2md.icns",
+            "CFBundlePackageType": "APPL",
+            "CFBundleInfoDictionaryVersion": "6.0",
+            "NSHighResolutionCapable": True,
+            # يخلّي شريط عنوان النظام يتبع الوضع الداكن الذي يختاره البرنامج.
+            "NSRequiresAquaSystemAppearance": False,
+            "NSHumanReadableCopyright": "MIT — Enezy1",
+            "LSMinimumSystemVersion": "11.0",
+        },
+    )
+else:
+    # نسخة الملف الواحد: كل المكتبات داخل exe وتُفك في مجلد مؤقت عند الفتح (أبطأ بثوانٍ، لكن لا شيء ينقص عند النقل).
+    onefile = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.datas,
+        [],
+        name="pdf2md",
+        console=False,
+        icon=icon_file,
+        version=version_resource(),
+        upx=False,
+        runtime_tmpdir=None,
+    )
