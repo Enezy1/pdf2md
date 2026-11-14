@@ -22,12 +22,32 @@ import pymupdf as fitz
 # وتُتخطّى الاختبارات التي تحتاج نصاً عربياً مرسوماً.
 _FONT_CANDIDATES = (
     ("C:/Windows/Fonts", "arial.ttf"),                        # ويندوز
-    ("/System/Library/Fonts/Supplemental", "Arial Unicode.ttf"),  # ماك
-    ("/System/Library/Fonts/Supplemental", "Arial.ttf"),
+    ("/System/Library/Fonts/Supplemental", "Arial.ttf"),       # ماك
+    ("/System/Library/Fonts/Supplemental", "Arial Unicode.ttf"),
     ("/Library/Fonts", "Arial Unicode.ttf"),
     ("/System/Library/Fonts", "GeezaPro.ttc"),
     ("/usr/share/fonts/truetype/dejavu", "DejaVuSans.ttf"),   # لينكس
 )
+
+_ARABIC_PROBE = "الدفعات المستحقة"
+
+
+def _arabic_letters_only(text: str) -> bool:
+    """هل كل محارف النص عربية (أو أشكالها العرضية)؟
+
+    الحروف المقلوبة (خلل في ترتيب التشكيل) تظهر بحروف لاتينية غريبة مثل Ǆ وǁ وƾ،
+    أما النص السليم فيظهر بأشكال عرضية عربية (ﻟﺩﻓﻌﺎﺕ).
+    """
+    letters = [c for c in text if not c.isspace() and c != "\xa0"]
+    if len(letters) < 6:
+        return False
+    for ch in letters:
+        cp = ord(ch)
+        if not (0x0600 <= cp <= 0x06FF or 0x0750 <= cp <= 0x077F
+                or 0xFB50 <= cp <= 0xFDFF or 0xFE70 <= cp <= 0xFEFF):
+            return False
+    return True
+
 
 def _renders_arabic(path: Path) -> bool:
     """هل في الخط محارف عربية فعلاً؟ بعض الخطوط اللاتينية على ماك لا تحوي حروفاً عربية."""
@@ -37,10 +57,33 @@ def _renders_arabic(path: Path) -> bool:
         return False
 
 
+def _shapes_arabic(path: Path) -> bool:
+    """هل يرسم الخط العربي بترتيب صحيح؟
+
+    بعض الخطوط (Arial Unicode على ماك) فيها المحارف العربية لكن ترتيبها يخرج مقلوباً
+    في نص الـ PDF، فيكسر كل اختبارات النص العربي. فنرسم جملة عربية ونقرأها back:
+    إن عادت كل حروفها عربية فالخط صالح، وإلا نجرّب الخط التالي.
+    """
+    try:
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_htmlbox(
+            fitz.Rect(40, 40, 555, 160),
+            f'<p dir="rtl">{_ARABIC_PROBE}</p>',
+            css=f"@font-face {{font-family: ar; src: url({path.name});}} p {{font-family: ar; font-size: 15px;}}",
+            archive=fitz.Archive(str(path.parent)),
+        )
+        text = page.get_text()
+        doc.close()
+        return _arabic_letters_only(text)
+    except Exception:
+        return False
+
+
 _font_dir, _font_file = "", ""
 for _d, _f in _FONT_CANDIDATES:
     _p = Path(_d) / _f
-    if _p.is_file() and _renders_arabic(_p):
+    if _p.is_file() and _renders_arabic(_p) and _shapes_arabic(_p):
         _font_dir, _font_file = _d, _f
         break
 

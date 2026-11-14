@@ -93,16 +93,17 @@ class GpuSupport(unittest.TestCase):
         import tempfile
         from unittest import mock
         from app import model_manager as mm
+        exe = mm._LLAMA_BIN   # "llama-server.exe" على ويندوز و"llama-server" على ماك ولينكس
         with tempfile.TemporaryDirectory() as d, mock.patch.object(mm, "llama_root", return_value=Path(d)):
             cpu = Path(d) / mm.cat.LLAMA_TAG
             cpu.mkdir()
-            (cpu / "llama-server.exe").write_bytes(b"x")
-            self.assertEqual(mm.engine_for(True), (cpu / "llama-server.exe", None))
+            (cpu / exe).write_bytes(b"x")
+            self.assertEqual(mm.engine_for(True), (cpu / exe, None))
             gpu = Path(d) / (mm.cat.LLAMA_TAG + "-vulkan")
             gpu.mkdir()
-            (gpu / "llama-server.exe").write_bytes(b"x")
-            self.assertEqual(mm.engine_for(True), (gpu / "llama-server.exe", cpu / "llama-server.exe"))
-            self.assertEqual(mm.engine_for(False), (cpu / "llama-server.exe", None))
+            (gpu / exe).write_bytes(b"x")
+            self.assertEqual(mm.engine_for(True), (gpu / exe, cpu / exe))
+            self.assertEqual(mm.engine_for(False), (cpu / exe, None))
 
     def test_start_falls_back_to_cpu_if_gpu_server_fails(self):
         from unittest import mock
