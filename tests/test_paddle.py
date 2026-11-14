@@ -429,7 +429,10 @@ class InstallTests(unittest.TestCase):
         blob = buf.getvalue()
         py = pe.Item("python", "https://example.invalid/py.zip", FileSpec("py.zip", len(blob), hashlib.sha256(blob).hexdigest()))
         pe.install(opener=FakeOpener(self.blobs))               # تنصيب بلا بايثون (مثل تنصيب قديم)
-        with mock.patch.object(sys, "frozen", True, create=True), mock.patch.object(pe, "PY_EMBED", py):
+        # unsupported_reason() يعتمد على النظام، فنُحيّيه: الاختبار يفحص منطق البايثون المضمَّن لا المنصة.
+        with mock.patch.object(sys, "frozen", True, create=True), \
+                mock.patch.object(pe, "PY_EMBED", py), \
+                mock.patch.object(pe, "unsupported_reason", return_value=""):
             self.assertEqual(pe.unsupported_reason(), "")
             self.assertTrue(pe.needs_python())
             self.assertFalse(pe.is_available())

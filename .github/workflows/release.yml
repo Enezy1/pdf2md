@@ -293,6 +293,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
+          pip install pytest    # للاختبارات قبل البناء
 
       - name: Run the test suite
         run: python -m pytest tests/ -q
@@ -348,5 +349,9 @@ jobs:
           EOF
           )
           body="$(gh release view "${{ github.ref_name }}" --json body --jq .body)"
-          printf '%s\n%s\n' "$body" "$note" > /tmp/notes.md
-          gh release edit "${{ github.ref_name }}" --notes-file /tmp/notes.md
+          if printf '%s' "$body" | grep -q "نسخة ماك"; then
+            echo "وصف نسخة ماك موجود في الملاحظات مسبقاً — لا داعي لتكراره."
+          else
+            printf '%s\n%s\n' "$body" "$note" > /tmp/notes.md
+            gh release edit "${{ github.ref_name }}" --notes-file /tmp/notes.md
+          fi
