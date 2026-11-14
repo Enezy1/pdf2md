@@ -248,7 +248,8 @@ jobs:
           - **ملف محمول** (`pdf2md.exe`): بلا تثبيت، شغّله مباشرة.
 
           بصمة SHA256 لكلا الملفين في `SHA256SUMS.txt` المرفق.
-          "@          if ($env:SIGNED -eq 'true') {
+          "@
+          if ($env:SIGNED -eq 'true') {
             $body += "`nFree code signing provided by SignPath.io, certificate by SignPath Foundation."
           }
           gh release view $tag *> $null
