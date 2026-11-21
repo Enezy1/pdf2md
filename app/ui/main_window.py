@@ -10,7 +10,7 @@ import logging
 import queue
 import threading
 import tkinter as tk
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 import time
@@ -32,6 +32,7 @@ from ..providers.catalog import ProviderConfig
 from ..rate_limit import UsageCounter
 from ..secrets_store import SecretsStore
 from . import ctk_ui as ui
+from . import status_labels as sl
 from . import theme
 from .theme import R, S1, S2, S3, S4, px
 
@@ -56,10 +57,20 @@ class FileEntry:
     path: Path
     pages: int | None = None
     file_hash: str | None = None
-    status: str = ""
-    error: str = ""
+    status: sl.FileStatus = field(default_factory=sl.FileStatus)  # حالة الملف كبيانات (لا نص)
     extra: bool = False  # أُضيف من خارج المجلد
     size: int = 0
+
+    @property
+    def error(self) -> str:
+        """سبب الفشل (فحص أو تحويل) — فارغ إن لم يفشل الملف."""
+        return self.status.error
+
+    @error.setter
+    def error(self, v: str) -> None:
+        self.status.error = v or ""
+        if v:
+            self.status.state = sl.ERROR
 
 
 class BgTask:
@@ -644,17 +655,17 @@ class MainWindow:
         pages = "" if e.pages is None else str(e.pages)
         rng = self.file_options.page_range(e.file_hash) if e.file_hash else ""
         if rng and e.pages:
-            pages = f"{rng} / {e.pages}"
-        status = e.error or e.status
-        if e.file_hash and self.file_options.force_ocr(e.file_hash):
-            status = (status + " · OCR").strip(" ·")
-        if e.file_hash and self.file_options.chat(e.file_hash):
-            status = (status + " · محادثات").strip(" ·")
-        tone = "err" if e.error else ("ok" if e.status == "جاهز" else ("busy" if e.status == "جارٍ الفحص" else ""))
-        parts = [f"{e.size / 1048576:.1f} ميغابايت" if e.size else "", "مضاف يدوياً" if e.extra else ""]
+            pages = f"{rng} من {e.pages}"
+        st = e.status
+        # خيارات المعالجة (OCR والمحادثات) سطر تحت اسم الملف، لا جزء من حالة الملف
+        parts = [f"{e.size / 1048576:.1f} ميغابايت" if e.size else "",
+                 "مضاف يدوياً" if e.extra else "",
+                 "OCR" if e.file_hash and self.file_options.force_ocr(e.file_hash) else "",
+                 "محادثات" if e.file_hash and self.file_options.chat(e.file_hash) else "",
+                 sl.note(st)]
         # بلا الامتداد: ".pdf" بعد رقم داخل نص عربي ينقلب ("pdf.2024")
-        self.table.set_row(key, e.path.stem, pages, status or "—", " • ".join(x for x in parts if x),
-                           key in self.checked, tone)
+        self.table.set_row(key, e.path.stem, pages, sl.text(st) or "—",
+                           " • ".join(x for x in parts if x), key in self.checked, sl.tone(st))
 
     def _pending_review_by_file(self) -> dict[str, int]:
         """الصفحات المعلّقة فعلاً للملفات الموجودة في الجدول، من حالة الصفحات (لا من التقرير النصي القديم)."""
@@ -668,12 +679,11 @@ class MainWindow:
         return sum(self._pending_review_by_file().values())
 
     def _refresh_review_counts(self) -> None:
-        """عمود الحالة «تم · N للمراجعة» يتبع الواقع بعد المراجعة (كان يبقى بالرقم القديم)."""
+        """شارة «تم · N صفحة معلّقة» تتبع الواقع بعد المراجعة (كان يبقى بالرقم القديم)."""
         pending = self._pending_review_by_file()
         for key, e in self.files.items():
-            if e.file_hash and e.status.startswith("تم"):
-                n = pending.get(e.file_hash, 0)
-                e.status = "تم" + (f" · {n} للمراجعة" if n else "")
+            if e.file_hash and e.status.state == sl.DONE:
+                e.status.pending = pending.get(e.file_hash, 0)
                 self._row(key)
 
     def _offer_pending_review(self, total: int) -> None:
@@ -716,7 +726,11 @@ class MainWindow:
         paths = filedialog.askopenfilenames(title="إضافة ملفات PDF أو صور",
                                                filetypes=[("PDF وصور", "*.pdf *.png *.jpg *.jpeg *.tif *.tiff *.bmp *.webp"),
                                                           ("PDF", "*.pdf"), ("صور", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp *.webp")])
-        new = [Path(p) for p in paths if str(Path(p)) not in self.files]
+        self._add_paths([Path(p) for p in paths])
+
+    def _add_paths(self, paths: list[Path]) -> None:
+        """يضيف ملفات جاهزة إلى القائمة — نفس منطق _add_file بدون نافذة اختيار."""
+        new = [p for p in paths if str(p) not in self.files]
         if not new:
             return
         for p in new:
@@ -730,6 +744,35 @@ class MainWindow:
         self.settings.save()
         self._update_count()
         threading.Thread(target=self._scan_worker, args=(self.scan_token, new), daemon=True).start()
+
+    def load_targets(self, targets: list[str]) -> None:
+        """مسارات وصلت من سطر الأوامر (فتح ملف أو مجلد من كليك يمين).
+
+        مجلد  -> يُحمَّل كمجلد عمل فتُقفل ملفاته في القائمة.
+        ملف   -> يُضاف إلى القائمة مع مسح الملف، ويُفتح الفحص في الخلفية.
+        """
+        log.info("مسارات من سطر الأوامر: %s", targets)
+        if self.busy():
+            log.info("البرنامج مشغول؛ تُتجاهل المسارات")
+            return
+        folders: list[Path] = []
+        files: list[Path] = []
+        for raw in targets:
+            if not raw:
+                continue
+            try:
+                p = Path(raw).expanduser()
+            except Exception:
+                continue
+            if p.is_dir():
+                folders.append(p)
+            elif p.is_file():
+                files.append(p)
+        log.info("المجلدات: %s | الملفات: %s", folders, files)
+        if folders:
+            self._load_folder(folders[0])
+        if files:
+            self._add_paths(files)
 
     def _list_pdfs(self, folder: Path) -> list[Path]:
         if self.settings.include_subfolders:
@@ -746,7 +789,7 @@ class MainWindow:
             size = p.stat().st_size
         except OSError:
             size = 0
-        self.files[key] = FileEntry(p, status="جارٍ الفحص", extra=extra, size=size)
+        self.files[key] = FileEntry(p, status=sl.FileStatus(sl.SCANNING), extra=extra, size=size)
         self.table.insert("", "end", iid=key)
         self._row(key)
 
@@ -908,7 +951,7 @@ class MainWindow:
         state_dir = self.output_dir() / ".state"
         for e in entries:
             cp.reset_file(state_dir, e.file_hash)
-            e.status = "جاهز"
+            e.status = sl.FileStatus(sl.QUEUED)
             self._row(str(e.path))
         self.log(f"↺ أُعيد ضبط {len(entries)} ملف — اضغط «ابدأ» لقراءته من جديد")
 
@@ -1368,10 +1411,10 @@ class MainWindow:
             if d["key"] not in self.files:
                 return
             e = self.files[d["key"]]
-            e.pages, e.file_hash, e.error = d["pages"], d["hash"], d["error"]
-            e.status = "" if e.error else "جاهز"
-            if d.get("resume") and not e.error:
-                e.status = f"يُستكمل {d['resume'][0]}/{d['resume'][1]}"
+            e.pages, e.file_hash = d["pages"], d["hash"]
+            e.status = sl.FileStatus(sl.ERROR if d["error"] else sl.QUEUED, error=d["error"] or "")
+            if d.get("resume") and not d["error"]:
+                e.status = sl.FileStatus(sl.PARTIAL, done=d["resume"][0], total=d["resume"][1])
             self._row(d["key"])
         elif kind in ("file_start", "page", "file_done", "file_error"):
             if d["index"] >= len(self.running_jobs):
@@ -1382,25 +1425,25 @@ class MainWindow:
             if kind == "file_start":
                 self._cur = {"index": d["index"], "page": 0, "pages": max(d["pages"], 1)}
                 if e:
-                    e.status, e.error = "جارٍ", ""
+                    e.status = sl.FileStatus(sl.WORKING, total=max(d["pages"], 1))
             elif kind == "page":
                 self._cur.update(index=d["index"], page=d["page"], pages=max(d["pages"], 1))
                 if d.get("status") not in (None, "pending_engine", "todo"):
                     self._run["done"].add((d["index"], d["page"]))
                 if e:
-                    e.status = f"{d['page']}/{d['pages']}"
+                    e.status = sl.FileStatus(sl.WORKING, done=d["page"], total=d["pages"])
             elif kind == "file_done":
                 self._cur.update(index=d["index"], page=self._cur["pages"])
                 self._run["files"] += 1
                 n_rev = d.get("review_count") or 0
                 if e:
-                    e.status = "تم" + (f" · {n_rev} للمراجعة" if n_rev else "")
+                    e.status = sl.FileStatus(sl.DONE, pending=n_rev)
                 # آخر حالة للملف تغلب (بعد المرحلة الثانية تختفي الصفحات التي أكدها مزوّد خارجي)
                 self._run.setdefault("local_warn", {})[d["name"]] = d.get("local_warnings") or {}
                 self.log(self._file_summary(d))
             else:
                 if e:
-                    e.error = "خطأ"
+                    e.status = sl.FileStatus(sl.ERROR, error=d.get("error") or "خطأ")
                 self.log(f"✗ {d['name']}: {d['error']}")
             self._progress()
             self._row(key)
@@ -1506,7 +1549,7 @@ def _fmt_elapsed(sec: float) -> str:
     return f"{s} ثانية"
 
 
-def run() -> None:
+def run(targets: list[str] | None = None) -> None:
     log_file = setup_logging()
     log.info("بدء التشغيل، السجل في %s", log_file)
     try:  # نص واضح على الشاشات المكبّرة (125%/150%) بدل الضبابية؛ لا يحتاج admin
@@ -1516,5 +1559,11 @@ def run() -> None:
         pass
     threading.Thread(target=cleanup_work_dir, name="cleanup", daemon=True).start()
     root = tk.Tk()
-    MainWindow(root)
+    window = MainWindow(root)
+    log.info("وسائط سطر الأوامر: %s", targets)
+    if targets:
+        try:
+            window.load_targets(list(targets))
+        except Exception as e:  # مسار من سطر الأوامر لا يصحّح أبداً فتح النافذة
+            log.warning("تعذّر تحميل المسارات من سطر الأوامر: %s", e)
     root.mainloop()

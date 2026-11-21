@@ -384,7 +384,7 @@ class FileTable(tk.Frame):
     selection. الأعمدة من اليمين: مربع، أيقونة+اسم (يتمدّد)، الصفحات، الحالة، قائمة الصف (أقصى اليسار).
     """
 
-    COLS = {"check": 56, "pages": 110, "status": 150, "more": 52}
+    COLS = {"check": 56, "pages": 110, "status": 168, "more": 52}
 
     def __init__(self, parent, on_toggle, on_menu, on_remove, on_add):
         t = theme.tokens()
@@ -505,7 +505,7 @@ class FileTable(tk.Frame):
         r["name"].configure(text=R(name), foreground=t["fg"] if checked else t["muted"])
         r["sub"].configure(text=R(sub))
         r["pages"].configure(text=pages or "—")
-        col = {"ok": t["ok"], "err": t["err"], "busy": t["accent_text"]}.get(tone, t["muted"])
+        col = {"ok": t["ok"], "err": t["err"], "busy": t["accent_text"], "warn": t["warn"]}.get(tone, t["muted"])
         r["status"].configure(text=R(status), text_color=col, fg_color=mix(col, t["card"], 0.80))
 
     # ---------------------------------------------------------------- الصفوف
@@ -534,7 +534,7 @@ class FileTable(tk.Frame):
         pages = tk.Label(f, background=t["raised"], foreground=t["fg"], font=_tkfont(15, "bold"), borderwidth=0,
                          padx=px(14), pady=px(4))
         pages.grid(row=0, column=3)
-        status = ctk.CTkLabel(f, text="", corner_radius=14, height=30, font=font(14, "bold"), padx=16)
+        status = ctk.CTkLabel(f, text="", corner_radius=14, height=30, font=font(13, "bold"), padx=12)
         status.grid(row=0, column=1)
         more = tk.Label(f, text=ICON["more"], font=_tkfont(16, icons=True), background=t["card"],
                         foreground=t["muted"], cursor="hand2", borderwidth=0)
