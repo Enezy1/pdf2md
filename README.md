@@ -2,13 +2,57 @@
 
 <p align="center"><img src="assets/logo.png" alt="شعار pdf2md" width="150"></p>
 
+<p align="center">
+  <a href="https://github.com/Enezy1/pdf2md/releases/latest">
+    <img src="docs/img/download-latest.png" alt="تحميل pdf2md الآن" height="70">
+  </a>
+</p>
+
+<p align="center">
+  <img src="docs/img/download-banner.png" alt="pdf2md — حوّل ملفات PDF إلى Markdown" width="860">
+</p>
+
 ![Build](https://github.com/Enezy1/pdf2md/actions/workflows/release.yml/badge.svg)
+[![أحدث إصدار](https://img.shields.io/github/v/release/Enezy1/pdf2md)](https://github.com/Enezy1/pdf2md/releases/latest)
 
 **تحويل ملفات PDF إلى Markdown — مع العربية أولاً**
 
 > برنامج لويندوز وماك يحوّل ملفات PDF — ولا سيما العربية — إلى نص Markdown منظَّم، يمكن كتابة تقرير منه مباشرة دون الرجوع إلى الملف الأصلي.
 
 ![النافذة الرئيسية](screenshots/main-light.png)
+
+---
+
+## ⬇️ تحميل البرنامج
+
+**كل روابط التحميل في هذه الصفحة تُعطيك أحدث نسخة دائماً.** الروابط تشير إلى `releases/latest`، فلا تحتاج أن تعرف رقم الإصدار ولا تدوّر في صفحة الإصدارات — وحين ينزل إصدار جديد، نفس الأزرار تنزله.
+
+### أيّ ملف أنزّل؟
+
+| جهازك | الملف | الحجم | لماذا هذا |
+|---|---|---|---|
+| **ويندوز** | [**pdf2md-Setup.exe**](https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-Setup.exe) | 66 ميغابايت | **الأفضل لأغلب الناس** — مثبّت لكل مستخدم بلا صلاحيات إدارية، ويظهر في «لوحة التحكم ← البرامج» ليُحذف منه |
+| **ويندوز** | [**pdf2md.exe**](https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md.exe) | 65 ميغابايت | ملف محمول بلا تثبيت — شغّله مباشرة، واحذفه بحذف الملف |
+| **ماك — Apple Silicon** | [**pdf2md-macos-arm64.dmg**](https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-macos-arm64.dmg) | 65 ميغابايت | أجهزة M1/M2/M3/M4 — أي ماك حديث |
+| **ماك — Intel** | [**pdf2md-macos-x64.dmg**](https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-macos-x64.dmg) | 71 ميغابايت | Macs القديمة بمعالج Intel |
+
+<p align="center">
+  <a href="https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-Setup.exe"><img src="docs/img/download-windows.png" alt="تحميل لويندوز" height="62"></a>
+  <a href="https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-macos-arm64.dmg"><img src="docs/img/download-macos-arm64.png" alt="تحميل لماك Apple Silicon" height="62"></a>
+  <a href="https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-macos-x64.dmg"><img src="docs/img/download-macos-x64.png" alt="تحميل لماك Intel" height="62"></a>
+</p>
+
+**كيف أعرف نوع معالج ماك؟** اضغط `Command` + المسافة واكتب `About This Mac`: إن كتب «Apple M1/M2/M3/M4» فأنت على **Apple Silicon** (arm64)، وإن كتب «Intel» فأنت على نسخة **Intel** (x64).
+
+**بعد تنزيل نسخة ماك:** macOS يمنع تشغيل التطبيق أول مرة لأنه غير موقّع من Apple — اضغط بالزر الأيمن على التطبيق ثم **فتح**، أو من الطرفية:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/pdf2md.app
+```
+
+التفاصيل كاملة في [نسخة ماك](#نسخة-ماك).
+
+**كل النسخ السابقة:** [صفحة الإصدارات](https://github.com/Enezy1/pdf2md/releases) — فيها كل الإصدارات مع بصمات SHA256 للتحقق من سلامة الملف.
 
 ---
 
@@ -35,8 +79,10 @@
 
 | الملف | الجهاز |
 |---|---|
-| `pdf2md-macos-arm64.dmg` | Apple Silicon (M1/M2/M3/M4) |
-| `pdf2md-macos-x64.dmg` | Intel |
+| [**pdf2md-macos-arm64.dmg**](https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-macos-arm64.dmg) | Apple Silicon (M1/M2/M3/M4) |
+| [**pdf2md-macos-x64.dmg**](https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-macos-x64.dmg) | Intel |
+
+(الروابط أعلحة دائماً تأخذ أحدث نسخة — لا حاجة للبحث عن رقم الإصدار.)
 
 افتح الـ DMG، اسحب التطبيق إلى **Applications**، ثم شغّله من مجلّد التطبيقات.
 
@@ -218,7 +264,7 @@ bash installer/make_dmg.sh arm64                 # يوقّع ذاتياً وي�
 
 يُنزَّل `pdf2md-Setup.exe` من صفحة الإصدارات ويُشغَّل:
 
-  https://github.com/Enezy1/pdf2md/releases
+  https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-Setup.exe
 
 المثبّت:
 
