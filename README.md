@@ -36,11 +36,13 @@
 | **ماك — Apple Silicon** | [**pdf2md-macos-arm64.dmg**](https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-macos-arm64.dmg) | 65 ميغابايت | أجهزة M1/M2/M3/M4 — أي ماك حديث |
 | **ماك — Intel** | [**pdf2md-macos-x64.dmg**](https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-macos-x64.dmg) | 71 ميغابايت | Macs القديمة بمعالج Intel |
 
-<p align="center">
-  <a href="https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-Setup.exe"><img src="docs/img/download-windows.png" alt="تحميل لويندوز" height="62"></a>
-  <a href="https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-macos-arm64.dmg"><img src="docs/img/download-macos-arm64.png" alt="تحميل لماك Apple Silicon" height="62"></a>
-  <a href="https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-macos-x64.dmg"><img src="docs/img/download-macos-x64.png" alt="تحميل لماك Intel" height="62"></a>
-</p>
+<table>
+  <tr>
+    <td align="center" width="33%"><a href="https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-Setup.exe"><img src="docs/img/download-windows.png" alt="تحميل لويندوز" height="56"></a><br>مثبّت — `.exe`</td>
+    <td align="center" width="33%"><a href="https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-macos-arm64.dmg"><img src="docs/img/download-macos-arm64.png" alt="تحميل لماك Apple Silicon" height="56"></a><br>Apple Silicon — `.dmg`</td>
+    <td align="center" width="33%"><a href="https://github.com/Enezy1/pdf2md/releases/latest/download/pdf2md-macos-x64.dmg"><img src="docs/img/download-macos-x64.png" alt="تحميل لماك Intel" height="56"></a><br>Intel — `.dmg`</td>
+  </tr>
+</table>
 
 **كيف أعرف نوع معالج ماك؟** اضغط `Command` + المسافة واكتب `About This Mac`: إن كتب «Apple M1/M2/M3/M4» فأنت على **Apple Silicon** (arm64)، وإن كتب «Intel» فأنت على نسخة **Intel** (x64).
 
