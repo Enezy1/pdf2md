@@ -254,10 +254,10 @@ jobs:
 
           | جهازك | الملف | الحجم | رابط مباشر |
           |---|---|---|---|
-          | **ويندوز** | `pdf2md-Setup.exe` — مثبّت | 66 MB | [تحميل]($base/pdf2md-Setup.exe) |
-          | **ويندوز** | `pdf2md.exe` — ملف محمول | 65 MB | [تحميل]($base/pdf2md.exe) |
-          | **ماك — Apple Silicon** | `pdf2md-macos-arm64.dmg` | 65 MB | [تحميل]($base/pdf2md-macos-arm64.dmg) |
-          | **ماك — Intel** | `pdf2md-macos-x64.dmg` | 71 MB | [تحميل]($base/pdf2md-macos-x64.dmg) |
+          | **ويندوز** | ``pdf2md-Setup.exe`` — مثبّت | 66 MB | [تحميل]($base/pdf2md-Setup.exe) |
+          | **ويندوز** | ``pdf2md.exe`` — ملف محمول | 65 MB | [تحميل]($base/pdf2md.exe) |
+          | **ماك — Apple Silicon** | ``pdf2md-macos-arm64.dmg`` | 65 MB | [تحميل]($base/pdf2md-macos-arm64.dmg) |
+          | **ماك — Intel** | ``pdf2md-macos-x64.dmg`` | 71 MB | [تحميل]($base/pdf2md-macos-x64.dmg) |
 
           **دائماً أحدث نسخة:** نفس الروابط تعمل بـ `latest` مكان رقم الإصدار، فتحمّل آخر إصدار بلا ما تعرف رقمه:
           [مثبّت ويندوز]($repo/releases/latest/download/pdf2md-Setup.exe) ·
@@ -268,7 +268,7 @@ jobs:
           **المثبّت على ويندوز:** تثبيت لكل مستخدم بلا صلاحيات إدارية، ومدخل في لوحة التحكم ← البرامج مع مزيل، واختصارات في قائمة ابدأ.
           **الملف المحمول:** بلا تثبيت، شغّله مباشرة.
 
-          بصمة SHA256 لكل الملفات في `SHA256SUMS.txt` و`SHA256SUMS-macos-arm64.txt` و`SHA256SUMS-macos-x64.txt`.
+          بصمة SHA256 لكل الملفات في ``SHA256SUMS.txt`` و``SHA256SUMS-macos-arm64.txt`` و``SHA256SUMS-macos-x64.txt``.
           "@
           if ($env:SIGNED -eq 'true') {
             $body += "`nFree code signing provided by SignPath.io, certificate by SignPath Foundation."

@@ -26,8 +26,8 @@ $script:root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Pa
 $outDir = Join-Path $script:root 'docs\img'
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
-$script:fontTitle = [System.Drawing.Font]::new('Segoe UI', 30, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
-$script:fontSub = [System.Drawing.Font]::new('Segoe UI', 22, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+$script:fontTitle = [System.Drawing.Font]::new('Segoe UI', 34, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+$script:fontSub = [System.Drawing.Font]::new('Segoe UI', 24, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
 
 function New-RoundedPath {
     param([double] $X, [double] $Y, [double] $W, [double] $H, [double] $R)
@@ -108,12 +108,12 @@ function Draw-Button {
     $soft = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(225, 255, 255, 255))
 
     if ($Subtitle) {
-        $r1 = [System.Drawing.RectangleF]::new(96, 24, ($W - 116), 46)
+        $r1 = [System.Drawing.RectangleF]::new(94, 20, ($W - 112), 48)
         $g.DrawString($Title, $script:fontTitle, $white, $r1, $sf)
-        $r2 = [System.Drawing.RectangleF]::new(96, 68, ($W - 116), 30)
+        $r2 = [System.Drawing.RectangleF]::new(94, 68, ($W - 112), 32)
         $g.DrawString($Subtitle, $script:fontSub, $soft, $r2, $sf)
     } else {
-        $r1 = [System.Drawing.RectangleF]::new(96, 32, ($W - 116), 62)
+        $r1 = [System.Drawing.RectangleF]::new(94, 30, ($W - 112), 64)
         $g.DrawString($Title, $script:fontTitle, $white, $r1, $sf)
     }
     $white.Dispose()
