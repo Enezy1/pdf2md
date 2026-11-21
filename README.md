@@ -269,7 +269,7 @@ pyinstaller pdf2md.spec
 & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' `
   "/DPdf2mdExe=$((Resolve-Path 'dist\pdf2md.exe').Path)" `
   "/DOutputDir=$((Resolve-Path 'dist').Path)" `
-  "/DAppVersion=1.0.4" `
+  "/DAppVersion=1.0.5" `
   'installer\pdf2md.iss'
 ```
 

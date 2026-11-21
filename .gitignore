@@ -27,6 +27,7 @@ ENV/
 # ---------- ملفات البناء (PyInstaller) ----------
 build/
 dist/
+dist_new/
 *.exe
 *.msi
 *.pkg
