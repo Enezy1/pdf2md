@@ -28,6 +28,7 @@ ENV/
 build/
 dist/
 dist_new/
+dist-portable/
 *.exe
 *.msi
 *.pkg

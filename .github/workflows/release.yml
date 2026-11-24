@@ -205,13 +205,27 @@ jobs:
             if ($s.Status -ne 'Valid') { throw "توقيع غير صالح: $f" }
           }
 
+      # ------------------------------------------------------------ النسخة المحمولة
+      - name: Build the portable package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # المجلد المحمول: البرنامج + سكربتات تسجيل مدخل الكليك اليمين.
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File installer\win\Make-Portable.ps1 `
+            -SourceExe 'dist\pdf2md.exe' `
+            -OutputDir 'dist\pdf2md-portable'
+          if (-not (Test-Path 'dist\pdf2md-portable\Register.cmd')) { throw 'حزمة النسخة المحمولة ناقصة' }
+          Compress-Archive -Path 'dist\pdf2md-portable\*' -DestinationPath 'dist\pdf2md-portable.zip' -Force
+          Get-Item 'dist\pdf2md-portable.zip' | Select-Object Name, Length
+
       # ------------------------------------------------------------ البصمات والإثبات
       - name: Compute SHA256
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $lines = @()
-          foreach ($f in @('dist\pdf2md.exe', 'dist\pdf2md-Setup.exe')) {
+          foreach ($f in @('dist\pdf2md.exe', 'dist\pdf2md-Setup.exe', 'dist\pdf2md-portable.zip')) {
             $hash = (Get-FileHash $f -Algorithm SHA256).Hash
             $lines += "$hash  $(Split-Path $f -Leaf)"
             Write-Output "$hash  $(Split-Path $f -Leaf)"
@@ -224,6 +238,7 @@ jobs:
           subject-path: |
             dist/pdf2md.exe
             dist/pdf2md-Setup.exe
+            dist/pdf2md-portable.zip
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -232,6 +247,7 @@ jobs:
           path: |
             dist/pdf2md.exe
             dist/pdf2md-Setup.exe
+            dist/pdf2md-portable.zip
             SHA256SUMS.txt
           retention-days: 30
 
@@ -256,17 +272,20 @@ jobs:
           |---|---|---|---|
           | **ويندوز** | ``pdf2md-Setup.exe`` — مثبّت | 66 MB | [تحميل]($base/pdf2md-Setup.exe) |
           | **ويندوز** | ``pdf2md.exe`` — ملف محمول | 65 MB | [تحميل]($base/pdf2md.exe) |
+          | **ويندوز** | ``pdf2md-portable.zip`` — محمول + كليك اليمين | 65 MB | [تحميل]($base/pdf2md-portable.zip) |
           | **ماك — Apple Silicon** | ``pdf2md-macos-arm64.dmg`` | 65 MB | [تحميل]($base/pdf2md-macos-arm64.dmg) |
           | **ماك — Intel** | ``pdf2md-macos-x64.dmg`` | 71 MB | [تحميل]($base/pdf2md-macos-x64.dmg) |
 
           **دائماً أحدث نسخة:** نفس الروابط تعمل بـ `latest` مكان رقم الإصدار، فتحمّل آخر إصدار بلا ما تعرف رقمه:
           [مثبّت ويندوز]($repo/releases/latest/download/pdf2md-Setup.exe) ·
           [ويندوز محمول]($repo/releases/latest/download/pdf2md.exe) ·
+          [ويندوز محمول مع كليك اليمين]($repo/releases/latest/download/pdf2md-portable.zip) ·
           [ماك Apple Silicon]($repo/releases/latest/download/pdf2md-macos-arm64.dmg) ·
           [ماك Intel]($repo/releases/latest/download/pdf2md-macos-x64.dmg)
 
-          **المثبّت على ويندوز:** تثبيت لكل مستخدم بلا صلاحيات إدارية، ومدخل في لوحة التحكم ← البرامج مع مزيل، واختصارات في قائمة ابدأ.
+          **المثبّت على ويندوز:** تثبيت لكل مستخدم بلا صلاحيات إدارية، ومدخل في لوحة التحكم ← البرامج مع مزيل، واختصارات في قائمة ابدأ، ومدخل ``pdf2md`` في كليك اليمين.
           **الملف المحمول:** بلا تثبيت، شغّله مباشرة.
+          **النسخة المحمولة (zip):** مثل الملف المحمول، وفيها ``Register.cmd`` تسجّل مدخل ``pdf2md`` في كليك اليمين لهذا المستخدم.
 
           بصمة SHA256 لكل الملفات في ``SHA256SUMS.txt`` و``SHA256SUMS-macos-arm64.txt`` و``SHA256SUMS-macos-x64.txt``.
           "@
@@ -279,7 +298,7 @@ jobs:
           } else {
             gh release edit $tag --notes $body
           }
-          gh release upload $tag 'dist\pdf2md.exe' 'dist\pdf2md-Setup.exe' 'SHA256SUMS.txt' --clobber
+          gh release upload $tag 'dist\pdf2md.exe' 'dist\pdf2md-Setup.exe' 'dist\pdf2md-portable.zip' 'SHA256SUMS.txt' --clobber
 
   # ------------------------------------------------------------ ماك
   # يبني نسخة .app على macos runners ( arm64 و x64 )، ويوقّعها توقيعاً ذاتياً (بلا حساب Apple)،

@@ -13,24 +13,44 @@
       * empty space in a folder, or on the desktop -> the same, for the
         folder that was clicked.
 
-    Everything is written under HKEY_CURRENT_USER, so no administrator rights
-    are needed and nothing outside your user profile is touched.
+    Scopes
+    -------
+      CurrentUser (default)
+          Written under HKEY_CURRENT_USER. Only the account that runs this
+          script sees the entry, and no administrator rights are needed.
+
+      AllUsers
+          Written under HKEY_LOCAL_MACHINE. Every account on the machine sees
+          the entry. Needs administrator rights, and the program must live in
+          a folder every user can read and execute (the exe is looked up
+          automatically, or given with -AppExe).
 
     Run:
         powershell -NoProfile -ExecutionPolicy Bypass -File Install-ContextMenu.ps1
+        powershell -NoProfile -ExecutionPolicy Bypass -File Install-ContextMenu.ps1 -Scope AllUsers
+        powershell -NoProfile -ExecutionPolicy Bypass -File Install-ContextMenu.ps1 -Portable
 
     Optional:
-        -Extensions "pdf,png"   Limit / extend the file types.
-        -Label "pdf2md"         Use a different menu label.
-        -Icon "path\to\icon.ico"  Use a different icon.
-        -SkipFolders            Do not register the folder entries.
-        -Uninstall              Remove the entries again.
+        -Scope "CurrentUser|AllUsers"  Who sees the entry (default CurrentUser).
+        -Portable                       Register the copy next to this script,
+                                        for the current user, without admin.
+        -AppExe "path\to\pdf2md.exe"    Use this executable instead of the
+                                        automatic lookup.
+        -Extensions "pdf,png"           Limit / extend the file types.
+        -Label "pdf2md"                 Use a different menu label.
+        -Icon "path\to\icon.ico"        Use a different icon.
+        -SkipFolders                    Do not register the folder entries.
+        -Uninstall                      Remove the entries again (both scopes).
 #>
 [CmdletBinding()]
 param(
     [string] $Extensions = 'pdf,png,jpg,jpeg,tif,tiff,bmp,webp',
     [string] $Label = 'pdf2md',
     [string] $Icon = '',
+    [string] $AppExe = '',
+    [ValidateSet('CurrentUser', 'AllUsers')]
+    [string] $Scope = 'CurrentUser',
+    [switch] $Portable,
     [switch] $SkipFolders,
     [switch] $Uninstall
 )
@@ -40,23 +60,49 @@ $ErrorActionPreference = 'Stop'
 $VerbId = 'MCodeConvertToMarkdown'
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $launcher = Join-Path $scriptRoot 'pdf2md-open.ps1'
-if (-not (Test-Path -LiteralPath $launcher)) {
-    throw "Launcher not found next to this script: $launcher"
-}
 
-# The app's own icon, so the menu entry looks exactly like the program.
-# Ø¬Ø°Ø± Ø§Ù„ØªØ·Ø¨ÙŠÙ‚: Ù…Ø¬Ù„Ø¯ Ø§Ù„Ù…Ø³ØªÙˆØ¯Ø¹ (installer\win\..\..) Ø¥Ù† ÙƒØ§Ù†Øª ÙÙŠÙ‡ main.pyØŒ ÙˆØ¥Ù„Ø§ Ø§Ù„Ù…Ø³Ø§Ø± Ø§Ù„Ù…Ø«Ø¨ÙŽÙ‘Øª.
-$appRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-if (-not (Test-Path -LiteralPath (Join-Path $appRoot 'main.py'))) {
-    $appRoot = 'D:\MARKDOWN\pdf2md'
-}
-$appIcon = Join-Path $appRoot 'assets\pdf2md.ico'
+if ($Portable) { $Scope = 'CurrentUser' }
 
 function Get-PowerShellHost {
     # pwsh is nicer to hide, but powershell.exe is always present on Windows.
     $pwsh = Get-Command 'pwsh.exe' -ErrorAction SilentlyContinue
     if ($pwsh) { return $pwsh.Source }
     return "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+}
+
+function Test-Administrator {
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($id)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Resolve-AppExe {
+    # نفس ترتيب البحث في pdf2md-open.ps1: بجوار السكربت، ثم المجلدات الأعلى
+    # (النسخة المثبتة)، ثم مجلد البناء داخل المشروع.
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($AppExe) { $candidates.Add($AppExe) }
+    if ($env:PDF2MD_EXE) { $candidates.Add($env:PDF2MD_EXE) }
+
+    $dir = $scriptRoot
+    for ($i = 0; $i -lt 3; $i++) {
+        $candidates.Add((Join-Path $dir 'pdf2md.exe'))
+        $parent = Split-Path -Parent $dir
+        if (-not $parent -or $parent -eq $dir) { break }
+        $dir = $parent
+    }
+
+    $appRoot = Split-Path -Parent (Split-Path -Parent $scriptRoot)
+    $candidates.Add((Join-Path $appRoot 'dist\pdf2md.exe'))
+    $candidates.Add((Join-Path $appRoot 'dist_new\pdf2md.exe'))
+
+    foreach ($candidate in $candidates) {
+        if (-not $candidate) { continue }
+        if (-not (Test-Path -LiteralPath $candidate)) { continue }
+        $item = Get-Item -LiteralPath $candidate
+        if ($item.PSIsContainer) { continue }
+        return $item.FullName
+    }
+    return $null
 }
 
 function Set-ShellVerb {
@@ -79,28 +125,42 @@ function Set-ShellVerb {
     New-ItemProperty -LiteralPath $commandKey -Name '(default)' -Value $VerbCommand -PropertyType String -Force | Out-Null
 }
 
-$shell = Get-PowerShellHost
-
-$iconPath = $Icon
-if (-not $iconPath) { $iconPath = $appIcon }
-if (Test-Path -LiteralPath $iconPath) {
-    $iconValue = $iconPath
-} else {
-    $iconValue = "$appRoot\dist\pdf2md.exe,0"
-    Write-Host "icon not found, falling back to the program icon: $iconPath"
+# ---------------------------------------------------------------- roots ----
+$hiveRoot = 'HKCU:\Software\Classes'
+$scopeNote = 'this user only'
+if ($Scope -eq 'AllUsers') {
+    $hiveRoot = 'HKLM:\Software\Classes'
+    $scopeNote = 'every user on this machine'
 }
+
+if ($Scope -eq 'AllUsers' -and -not (Test-Administrator)) {
+    throw ("Scope AllUsers writes to HKEY_LOCAL_MACHINE and needs administrator rights.`n" +
+           "Run installer\win\Install-AllUsers.ps1 instead - it asks Windows for the`n" +
+           "elevation itself and then does the same job.")
+}
+
+$appRoot = Split-Path -Parent (Split-Path -Parent $scriptRoot)
+$resolvedExe = Resolve-AppExe
 
 # %1 is the item that was clicked (the file, or the folder icon).
 # %V is the folder whose background was clicked (same convention the built-in
 # "Open in Terminal" entry uses).
+$shell = Get-PowerShellHost
 $commandTemplate = '{0} -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{1}" "{2}"'
 $commandForItem = $commandTemplate -f $shell, $launcher, '%1'
 $commandForFolder = $commandTemplate -f $shell, $launcher, '%V'
 
+if ($resolvedExe -and ($Portable -or $Scope -eq 'AllUsers')) {
+    # النسخة المستقلة والنسخة المشتركة: تشغيل مباشر للبرنامج بلا PowerShell
+    # ولا سكربت وسيط، فيكفي أن يكون المسار مقروءاً لكل المستخدمين.
+    $commandForItem = '"{0}" "{1}"' -f $resolvedExe, '%1'
+    $commandForFolder = '"{0}" "{1}"' -f $resolvedExe, '%V'
+}
+
 $folderVerbs = @(
-    @{ Path = "HKCU:\Software\Classes\Directory\shell\$VerbId";             Command = $commandForItem;   Note = 'right-click a folder' }
-    @{ Path = "HKCU:\Software\Classes\Directory\Background\shell\$VerbId"; Command = $commandForFolder; Note = 'empty space inside a folder' }
-    @{ Path = "HKCU:\Software\Classes\DesktopBackground\shell\$VerbId";    Command = $commandForFolder; Note = 'empty space on the desktop' }
+    @{ Path = "$hiveRoot\Directory\shell\$VerbId";             Command = $commandForItem;   Note = 'right-click a folder' }
+    @{ Path = "$hiveRoot\Directory\Background\shell\$VerbId"; Command = $commandForFolder; Note = 'empty space inside a folder' }
+    @{ Path = "$hiveRoot\DesktopBackground\shell\$VerbId";    Command = $commandForFolder; Note = 'empty space on the desktop' }
 )
 
 $extensionList = @(
@@ -110,36 +170,67 @@ $extensionList = @(
 )
 if ($extensionList.Count -eq 0) { throw 'No extensions given.' }
 
+# ------------------------------------------------------------- uninstall ---
 if ($Uninstall) {
+    $roots = @('HKCU:\Software\Classes', 'HKLM:\Software\Classes')
     foreach ($ext in $extensionList) {
-        foreach ($base in @(
-            "HKCU:\Software\Classes\SystemFileAssociations\.$ext\shell\$VerbId",
-            "HKCU:\Software\Classes\.$ext\shell\$VerbId")) {
-            if (Test-Path -LiteralPath $base) {
-                Remove-Item -LiteralPath $base -Recurse -Force
-                Write-Host "removed: $base"
+        foreach ($root in $roots) {
+            foreach ($base in @(
+                "$root\SystemFileAssociations\.$ext\shell\$VerbId",
+                "$root\.$ext\shell\$VerbId")) {
+                if (Test-Path -LiteralPath $base) {
+                    Remove-Item -LiteralPath $base -Recurse -Force
+                    Write-Host "removed: $base"
+                }
             }
         }
     }
-    foreach ($verb in $folderVerbs) {
-        if (Test-Path -LiteralPath $verb.Path) {
-            Remove-Item -LiteralPath $verb.Path -Recurse -Force
-            Write-Host "removed: $($verb.Path)"
+    foreach ($root in $roots) {
+        foreach ($path in @(
+            "$root\Directory\shell\$VerbId",
+            "$root\Directory\Background\shell\$VerbId",
+            "$root\DesktopBackground\shell\$VerbId")) {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Recurse -Force
+                Write-Host "removed: $path"
+            }
         }
     }
     Write-Host ''
-    Write-Host 'Context menu entry removed.'
+    Write-Host 'Context menu entry removed (current user and all users).'
     exit 0
 }
 
+# ----------------------------------------------------------------- icon ----
+$iconPath = $Icon
+if (-not $iconPath) {
+    # النسخة المحمولة تحمل أيقونتها بجوارها، ومجلد المشروع يحملها في assets.
+    foreach ($candidate in @(
+        (Join-Path $scriptRoot 'pdf2md.ico'),
+        (Join-Path $appRoot 'assets\pdf2md.ico'))) {
+        if (Test-Path -LiteralPath $candidate) { $iconPath = $candidate; break }
+    }
+}
+if (-not $iconPath) {
+    if ($resolvedExe) {
+        $iconValue = "$resolvedExe,0"
+    } else {
+        $iconValue = "$appRoot\dist\pdf2md.exe,0"
+        Write-Host "icon and executable not found, falling back to: $iconValue"
+    }
+} else {
+    $iconValue = (Get-Item -LiteralPath $iconPath).FullName
+}
+
+# ------------------------------------------------------------ register -----
 foreach ($ext in $extensionList) {
     # SystemFileAssociations adds the verb without touching the ProgID, so the
     # file keeps opening with whatever app it uses today.
-    $key = "HKCU:\Software\Classes\SystemFileAssociations\.$ext\shell\$VerbId"
+    $key = "$hiveRoot\SystemFileAssociations\.$ext\shell\$VerbId"
     Set-ShellVerb -KeyPath $key -VerbLabel $Label -VerbIcon $iconValue -VerbCommand $commandForItem
 
     # Older/leftover location: remove it so the entry is not listed twice.
-    $legacy = "HKCU:\Software\Classes\.$ext\shell\$VerbId"
+    $legacy = "$hiveRoot\.$ext\shell\$VerbId"
     if (Test-Path -LiteralPath $legacy) {
         Remove-Item -LiteralPath $legacy -Recurse -Force
     }
@@ -148,7 +239,7 @@ foreach ($ext in $extensionList) {
 
 # Types that were registered before but are not in the list get removed, so the
 # menu never offers a file that pdf2md cannot open.
-$associationsRoot = 'HKCU:\Software\Classes\SystemFileAssociations'
+$associationsRoot = Join-Path $hiveRoot 'SystemFileAssociations'
 Get-ChildItem -LiteralPath $associationsRoot -ErrorAction SilentlyContinue | ForEach-Object {
     $old = Join-Path $_.PSPath "shell\$VerbId"
     if (-not (Test-Path -LiteralPath $old)) { return }
@@ -165,11 +256,30 @@ if (-not $SkipFolders) {
     }
 }
 
+if ($Scope -eq 'AllUsers') {
+    # نسخة المستخدم الواحد تُمسح حتى يبقى مدخل واحد مشترك على الجهاز.
+    $userRoots = @(
+        "HKCU:\Software\Classes\Directory\shell\$VerbId",
+        "HKCU:\Software\Classes\Directory\Background\shell\$VerbId",
+        "HKCU:\Software\Classes\DesktopBackground\shell\$VerbId")
+    foreach ($ext in $extensionList) {
+        $userRoots += "HKCU:\Software\Classes\SystemFileAssociations\.$ext\shell\$VerbId"
+    }
+    foreach ($path in $userRoots) {
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Recurse -Force
+            Write-Host "removed (per-user copy, the shared entry replaces it): $path"
+        }
+    }
+}
+
 Write-Host ''
 Write-Host "Menu label      : $Label"
+Write-Host "Visible to      : $scopeNote"
 Write-Host "Icon            : $iconValue"
 Write-Host "Command         : $commandForItem"
 Write-Host "File types      : $($extensionList.Count)"
-Write-Host "Launcher        : $launcher"
+if ($resolvedExe) { Write-Host "Executable      : $resolvedExe" }
+else { Write-Host "Executable      : (not found, the launcher is used instead)" }
 Write-Host ''
 Write-Host 'Done. Right-click a file or a folder -> Show more options -> pdf2md.'

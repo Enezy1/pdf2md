@@ -1,7 +1,9 @@
 ﻿; مثبّت pdf2md — Windows.
 ; يُبنى داخل GitHub Actions فقط (انظر docs/CODE_SIGNING.md).
 ; التثبيت لكل مستخدم: بلا صلاحيات إدارية، والمسار %LOCALAPPDATA%\Programs\pdf2md.
-; النتيجة: مدخل في لوحة التحكم ← البرامج، ومزيل للبرنامج، واختصارات في قائمة ابدأ.
+; النتيجة: مدخل في لوحة التحكم ← البرامج، ومزيل للبرنامج، واختصارات في قائمة ابدأ،
+; ومدخل "pdf2md" في كليك اليمين لويندوز (لهذا المستخدم الذي ثبّت البرنامج).
+; لمشاركة المدخل مع كل المستخدمين على جهاز واحد: installer\win\Install-AllUsers.ps1.
 ;
 ; البناء:
 ;   ISCC.exe /DPdf2mdExe=<path-to-pdf2md.exe> /DOutputDir=<dir> /DAppVersion=<x.y.z> pdf2md.iss
@@ -58,10 +60,13 @@ Name: "arabic"; MessagesFile: "compiler:Languages\Arabic.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "contextmenu"; Description: "{cm:CreateContextMenuEntry}"; GroupDescription: "{cm:AdditionalTasks}"
 
 [Files]
 Source: "{#Pdf2mdExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "win\Install-ContextMenu.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
+Source: "win\pdf2md-open.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
@@ -70,9 +75,22 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; تسجيل مدخل "pdf2md" في كليك اليمين — للمستخدم الذي ثبّت البرنامج.
+; HKCU، فلا يحتاج صلاحيات مدير، فيحصل كل من يثبّت البرنامج على المدخل.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\Install-ContextMenu.ps1"" -Scope CurrentUser -AppExe ""{app}\{#AppExeName}"""; Flags: runhidden; Tasks: contextmenu
+
+[UninstallRun]
+; حذف مدخل الكليك اليمين قبل حذف الملفات.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\Install-ContextMenu.ps1"" -Uninstall"; Flags: runhidden; RunOnceId: "RemovePdf2mdContextMenu"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
+
+[CustomMessages]
+english.CreateContextMenuEntry=Add the "pdf2md" entry to the Windows right-click menu
+arabic.CreateContextMenuEntry=إضافة مدخل "pdf2md" إلى قائمة الكليك اليمين في ويندوز
+english.AdditionalTasks=Additional tasks
+arabic.AdditionalTasks=مهام إضافية
 
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
