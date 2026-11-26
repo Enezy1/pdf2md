@@ -56,6 +56,12 @@ xattr -dr com.apple.quarantine /Applications/pdf2md.app
 
 **كل النسخ السابقة:** [صفحة الإصدارات](https://github.com/Enezy1/pdf2md/releases) — فيها كل الإصدارات مع بصمات SHA256 للتحقق من سلامة الملف.
 
+### التوقيع الرقمي
+
+**Free code signing provided by SignPath.io, certificate by SignPath Foundation.**
+
+طلبنا شهادة مجانية من [SignPath Foundation](https://signpath.org/apply) لهذا المشروع المفتوح. بمجرد موافقة مؤسسة SignPath Foundation على الطلب، تُوقَّع الملفات المنشورة (`pdf2md.exe` و`pdf2md-Setup.exe`) تلقائياً داخل خط الإنتاج، ويظهر الناشر باسم **SignPath Foundation** بدل «ناشر غير معروف» — بلا أي خطوة إضافية من المستخدم. التفاصيل الكاملة في [سياسة التوقيع الرقمي](docs/CODE_SIGNING.md).
+
 ---
 
 ## ماذا يفعل البرنامج؟
@@ -345,7 +351,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Programs\pdf
 
 ### تحذير: الملف غير موقّع رقمياً
 
-الملفات المنشورة (`pdf2md.exe` و`pdf2md-Setup.exe`) **غير موقّعة** حالياً، فويندوز قد يعرض «حماية ويندوز لجهازك» عند أول تشغيل. اختر **مزيد من المعلومات ← تشغيل على أي حال**. التوقيع عبر SignPath مفعّل في خط الإنتاج ويكفي ضبط أسراره (انظر `docs/CODE_SIGNING.md`).
+الملفات المنشورة (`pdf2md.exe` و`pdf2md-Setup.exe`) **غير موقّعة** حالياً، فويندوز قد يعرض «حماية ويندوز لجهازك» عند أول تشغيل. اختر **مزيد من المعلومات ← تشغيل على أي حال**. التوقيع عبر SignPath Foundation **مطلوب ومُرسل** للمشروع المفتوح، وما عليه إلا موافقة المؤسسة (نحو أسبوع) ليصبح كل إصدار جديد موقّعاً تلقائياً — انظر [التوقيع الرقمي](#التوقيع-الرقمي) و`docs/CODE_SIGNING.md`.
 
 إن حذف مضاد الفيروسات الملف، أضف استثناءً لمجلد التثبيت (`%LOCALAPPDATA%\Programs\pdf2md`) في `Windows Security ← Virus & threat protection ← Manage settings ← Exclusions`.
 
