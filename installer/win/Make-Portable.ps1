@@ -50,7 +50,8 @@ Write-Host "Portable folder : $OutputDir"
 Write-Host "Executable      : $exe"
 
 Copy-Item -LiteralPath $exe -Destination (Join-Path $OutputDir 'pdf2md.exe') -Force
-foreach ($script in @('Install-ContextMenu.ps1', 'pdf2md-open.ps1', 'Install-AllUsers.ps1')) {
+foreach ($script in @('Install-ContextMenu.ps1', 'pdf2md-open.ps1', 'Install-AllUsers.ps1',
+                      'pdf2md-doctor.ps1', 'Diagnose.cmd')) {
     Copy-Item -LiteralPath (Join-Path $scriptRoot $script) -Destination (Join-Path $OutputDir $script) -Force
 }
 $icon = Join-Path $projectRoot 'assets\pdf2md.ico'
@@ -95,6 +96,12 @@ pdf2md — نسخة بروتابل
 -----
 انقر مرتين على:  Unregister.cmd
 
+التشخيص (إذا لم يفتح المدخل)
+----------------------------
+انقر مرتين على:  Diagnose.cmd
+يقول لك بالضبط أين المشكلة: هل المدخل مسجّل، وهل البرنامج موجود، وهل حجبه
+مضاد الفيروسات، وهل يفتح. النصب يُحفظ أيضاً في %TEMP%\pdf2md-doctor.txt
+
 للوصول إلى كل المستخدمين على الجهاز
 -----------------------------------
 1) ضع المجلد في مكان يقرأه الجميع، مثل C:\Tools\pdf2md
@@ -125,6 +132,13 @@ Then right-click any file or folder (or the empty space inside a folder) ->
 Remove
 ------
 Double click:  Unregister.cmd
+
+Diagnose (if the entry does not open)
+-------------------------------------
+Double click:  Diagnose.cmd
+It tells you exactly where the problem is: whether the entry is registered,
+whether the program is still there, whether antivirus blocked it, and whether
+it starts. The report is also saved to %TEMP%\pdf2md-doctor.txt
 
 For every user on the machine
 -----------------------------

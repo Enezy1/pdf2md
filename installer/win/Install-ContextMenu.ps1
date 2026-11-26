@@ -13,6 +13,23 @@
       * empty space in a folder, or on the desktop -> the same, for the
         folder that was clicked.
 
+    How the entry is launched
+    -------------------------
+    When the path of the program is known, the entry calls the executable
+    directly:
+
+        "C:\...\pdf2md.exe" "%1"
+
+    That is deliberate. The earlier version went through a hidden
+    PowerShell window, which meant that any policy on that machine (AppLocker,
+    WDAC, a restricted execution policy) silently broke the entry, and a
+    failure produced no message at all. Calling the program directly removes
+    PowerShell from the path and lets Explorer report a launch failure.
+
+    The PowerShell launcher (pdf2md-open.ps1) is still used in the development
+    layout, where the program may run from the sources, and it can be forced
+    with -UseLauncher.
+
     Scopes
     -------
       CurrentUser (default)
@@ -40,6 +57,8 @@
         -Label "pdf2md"                 Use a different menu label.
         -Icon "path\to\icon.ico"        Use a different icon.
         -SkipFolders                    Do not register the folder entries.
+        -UseLauncher                    Launch through the PowerShell script
+                                        instead of calling the exe directly.
         -Uninstall                      Remove the entries again (both scopes).
 #>
 [CmdletBinding()]
@@ -52,6 +71,7 @@ param(
     [string] $Scope = 'CurrentUser',
     [switch] $Portable,
     [switch] $SkipFolders,
+    [switch] $UseLauncher,
     [switch] $Uninstall
 )
 
@@ -147,14 +167,22 @@ $resolvedExe = Resolve-AppExe
 # "Open in Terminal" entry uses).
 $shell = Get-PowerShellHost
 $commandTemplate = '{0} -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{1}" "{2}"'
-$commandForItem = $commandTemplate -f $shell, $launcher, '%1'
-$commandForFolder = $commandTemplate -f $shell, $launcher, '%V'
 
-if ($resolvedExe -and ($Portable -or $Scope -eq 'AllUsers')) {
-    # النسخة المستقلة والنسخة المشتركة: تشغيل مباشر للبرنامج بلا PowerShell
-    # ولا سكربت وسيط، فيكفي أن يكون المسار مقروءاً لكل المستخدمين.
-    $commandForItem = '"{0}" "{1}"' -f $resolvedExe, '%1'
-    $commandForFolder = '"{0}" "{1}"' -f $resolvedExe, '%V'
+# تشغيل مباشر للبرنامج بلا PowerShell ولا سكربت وسيط: أقل نقاط فشل، وويندوز
+# نفسه يُظهر رسالة إن فشل تشغيل الملف.
+$directExe = $null
+if ($resolvedExe -and -not $UseLauncher) {
+    if ($Portable -or $Scope -eq 'AllUsers' -or $AppExe) {
+        $directExe = $resolvedExe
+    }
+}
+
+if ($directExe) {
+    $commandForItem = '"{0}" "{1}"' -f $directExe, '%1'
+    $commandForFolder = '"{0}" "{1}"' -f $directExe, '%V'
+} else {
+    $commandForItem = $commandTemplate -f $shell, $launcher, '%1'
+    $commandForFolder = $commandTemplate -f $shell, $launcher, '%V'
 }
 
 $folderVerbs = @(
@@ -273,12 +301,26 @@ if ($Scope -eq 'AllUsers') {
     }
 }
 
+# ------------------------------------------------------------- verify -----
+# نقرأ ما كتبناه فعلاً من الريجستري: تسجيل صامت نصف مكتوب هو أسوأ من لا تسجيل.
+$verifyKey = "$hiveRoot\SystemFileAssociations\.$($extensionList[0])\shell\$VerbId\command"
+$written = (Get-ItemProperty -LiteralPath $verifyKey -ErrorAction SilentlyContinue).'(default)'
+if (-not $written) {
+    throw "Registration did not stick: $verifyKey is empty."
+}
+if ($written -ne $commandForItem) {
+    throw "Registration mismatch in $verifyKey.`nExpected: $commandForItem`nFound:    $written"
+}
+Write-Host "verified in registry: $written"
+
 Write-Host ''
 Write-Host "Menu label      : $Label"
 Write-Host "Visible to      : $scopeNote"
 Write-Host "Icon            : $iconValue"
 Write-Host "Command         : $commandForItem"
 Write-Host "File types      : $($extensionList.Count)"
+if ($directExe) { Write-Host "Launch          : the program directly (no PowerShell)" }
+elseif ($resolvedExe) { Write-Host "Launch          : through pdf2md-open.ps1" }
 if ($resolvedExe) { Write-Host "Executable      : $resolvedExe" }
 else { Write-Host "Executable      : (not found, the launcher is used instead)" }
 Write-Host ''

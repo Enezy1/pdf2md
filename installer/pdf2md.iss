@@ -14,7 +14,7 @@
 #define MyAppURL "https://github.com/Enezy1/pdf2md"
 
 #ifndef AppVersion
-  #define AppVersion "1.0.5"
+  #define AppVersion "1.0.7"
 #endif
 #ifndef Pdf2mdExe
   #error Pdf2mdExe is required. Use: ISCC.exe /DPdf2mdExe=<path> /DOutputDir=<dir> /DAppVersion=<x.y.z> pdf2md.iss
@@ -65,11 +65,15 @@ Name: "contextmenu"; Description: "{cm:CreateContextMenuEntry}"; GroupDescriptio
 [Files]
 Source: "{#Pdf2mdExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\assets\pdf2md.ico"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "win\Install-ContextMenu.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "win\pdf2md-open.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
+Source: "win\pdf2md-doctor.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
+Source: "win\Diagnose.cmd"; DestDir: "{app}\installer"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
+Name: "{group}\تشخيص {#AppName}"; Filename: "{app}\installer\Diagnose.cmd"; WorkingDir: "{app}"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
@@ -77,6 +81,9 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
 ; تسجيل مدخل "pdf2md" في كليك اليمين — للمستخدم الذي ثبّت البرنامج.
 ; HKCU، فلا يحتاج صلاحيات مدير، فيحصل كل من يثبّت البرنامج على المدخل.
+; المدخل المسجّل يستدعي البرنامج مباشرة (بلا PowerShell مخفي)، فيقلّ احتمال
+; أن يفشل بلا سبب ظاهر على جهاز فيه قيود. والسكربت يتحقق من الكتابة فعلاً
+; ويخرج بخطأ إن لم تُسجَّل — فيعرض المثبّت رسالة بدل الفشل الصامت.
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\Install-ContextMenu.ps1"" -Scope CurrentUser -AppExe ""{app}\{#AppExeName}"""; Flags: runhidden; Tasks: contextmenu
 
 [UninstallRun]
